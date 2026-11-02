@@ -1,0 +1,1265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TinyEMU Agent</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body { margin: 0; display: flex; flex-direction: column; font: 13px/1.45 system-ui, sans-serif; background: #14161a; color: #e6e6e6; }
+  header { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 14px; background: #1c1f26; border-bottom: 1px solid #2a2e37; }
+  header h1 { margin: 0 6px 0 0; font-size: 14px; }
+  label { display: flex; gap: 5px; align-items: center; color: #8a93a2; }
+  input, select, button, textarea { background: #23272f; color: #e6e6e6; border: 1px solid #3a3f4a; border-radius: 5px; padding: 5px 8px; font: inherit; }
+  button { cursor: pointer; }
+  button:hover:not(:disabled) { background: #2c313b; }
+  button:disabled { opacity: .5; cursor: default; }
+  .badge { margin-left: auto; font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #7a5c1e; }
+  .badge.ready { background: #1f6f3f; }
+  .badge.error { background: #7a2020; }
+  main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  section { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+  #chatPane { border-right: 1px solid #2a2e37; }
+  #chatBar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid #2a2e37; background: #1c1f26; color: #8a93a2; font-size: 12px; }
+  #chatBar button { padding: 2px 8px; font-size: 12px; }
+  #usageBrief { flex: 1; min-width: 0; text-align: right; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 11px ui-monospace, monospace; }
+  #chatView, #settingsPane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #settingsPane { overflow: auto; padding: 4px 14px 14px; }
+  #settingsPane h2 { display: flex; gap: 8px; align-items: baseline; margin: 14px 0 4px; font-size: 13px; }
+  #settingsPane h2 button { margin-left: auto; padding: 2px 8px; font-size: 12px; }
+  #settingsPane .hint { margin: 0 0 8px; color: #8a93a2; font-size: 12px; font-weight: 400; }
+  #settingsPane code { font: 12px ui-monospace, monospace; color: #e6e6e6; }
+  #toolToggles, .toggles { display: flex; flex-direction: column; gap: 6px; }
+  #settingsPane label { align-items: flex-start; color: #e6e6e6; }
+  #settingsPane label input { margin: 2px 4px 0 0; accent-color: #7fb4ff; }
+  #settingsPane label .tname { font: 600 12px ui-monospace, monospace; color: #7fb4ff; min-width: 64px; }
+  #settingsPane label .tdesc { color: #8a93a2; }
+  #usageWrap { overflow-x: auto; }
+  #usageTable { border-collapse: collapse; font: 12px ui-monospace, monospace; }
+  #usageTable th, #usageTable td { padding: 4px 10px 4px 0; text-align: right; white-space: nowrap; }
+  #usageTable th:first-child, #usageTable td:first-child { text-align: left; }
+  #usageTable thead th { color: #8a93a2; font-weight: 400; border-bottom: 1px solid #2a2e37; }
+  #usageTable tr.total td { border-top: 1px solid #2a2e37; font-weight: 600; }
+  #log.hide-thinking details.thinking { display: none; }
+  #log { flex: 1; overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg.user { align-self: flex-end; max-width: 85%; background: #26364f; padding: 7px 11px; border-radius: 10px; }
+  .msg.note { color: #8a93a2; font-size: 12px; }
+  .msg.problem { color: #e88; font-size: 12px; }
+  details { background: #1a1d23; border: 1px solid #2a2e37; border-radius: 7px; }
+  details.thinking { color: #8a93a2; font-size: 12px; }
+  summary { cursor: pointer; padding: 5px 9px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 12px/1.45 ui-monospace, monospace; }
+  summary .name { color: #7fb4ff; font-weight: 600; }
+  /* running tool call */
+  .spinner { float: right; width: 12px; height: 12px; margin: 2px 0 0 8px; border: 2px solid #3a3f4a; border-top-color: #7fb4ff; border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
+  details.failed summary .name { color: #e88; }
+  details pre { margin: 0; padding: 7px 9px; max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border-top: 1px solid #2a2e37; font: 12px/1.35 ui-monospace, monospace; }
+  details pre.input { color: #8a93a2; }
+  form { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid #2a2e37; background: #1c1f26; }
+  form textarea { flex: 1; resize: none; height: 54px; }
+  #model { width: 240px; text-overflow: ellipsis; }
+  #vmBar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid #2a2e37; background: #1c1f26; color: #8a93a2; font-size: 12px; }
+  #vmBar button, #filesBar button, #previewBar button, #skillsBar button, .skill button, #skillViewBar button { padding: 2px 8px; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
+  #snapInfo { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  [role=tablist] { display: flex; gap: 2px; margin-right: 6px; }
+  [role=tab] { border-radius: 5px 5px 0 0; }
+  [role=tab][aria-selected=true] { background: #2c313b; color: #fff; border-color: #7fb4ff; }
+  #consolePane, #filesPane, #skillsPane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #skillsBar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid #2a2e37; font-size: 12px; color: #8a93a2; }
+  #skillsHint { flex: 1; min-width: 0; }
+  #skillsHint code { font: 12px ui-monospace, monospace; color: #e6e6e6; }
+  #skillsList { flex: 1; min-height: 0; overflow: auto; padding: 4px 0; }
+  #skillsPane.dropping #skillsList { outline: 2px dashed #7fb4ff; outline-offset: -6px; background: #161b24; }
+  .skill { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: start; padding: 7px 12px; border-bottom: 1px solid #1f232b; }
+  .skill .sid { font: 600 12px ui-monospace, monospace; color: #7fb4ff; overflow-wrap: anywhere; }
+  .skill .sname { color: #8a93a2; font-weight: 400; }
+  .skill .sdesc { grid-column: 1; color: #c4cad4; font-size: 12px; overflow-wrap: anywhere; }
+  .skill .sbuttons { display: flex; gap: 6px; }
+  #skillView { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #skillViewBar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid #2a2e37; font-size: 12px; }
+  #skillViewName { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 12px ui-monospace, monospace; color: #8a93a2; }
+  #skillViewBody { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(110px, 32%) minmax(0, 1fr); }
+  #skillFiles { overflow: auto; padding: 4px 0; border-right: 1px solid #2a2e37; font: 12px/1.35 ui-monospace, monospace; }
+  .sfile { display: flex; gap: 6px; padding: 4px 10px; cursor: pointer; }
+  .sfile:hover, .sfile:focus-visible { background: #1f232b; outline: none; }
+  .sfile[aria-current=true] { background: #26364f; color: #fff; }
+  .sfile .fname { flex: 1; min-width: 0; overflow-wrap: break-word; }
+  .sfile .meta { color: #8a93a2; font-size: 11px; white-space: nowrap; }
+  #skillFileBody { margin: 0; padding: 8px 12px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: #0e1013; font: 12px/1.35 ui-monospace, monospace; }
+  #filesBar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid #2a2e37; font-size: 12px; }
+  #crumbs { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 12px ui-monospace, monospace; }
+  #crumbs a { color: #7fb4ff; cursor: pointer; text-decoration: none; }
+  #crumbs a:hover { text-decoration: underline; }
+  #filesList { flex: 1; min-height: 0; overflow: auto; padding: 4px 0; font: 12px/1.35 ui-monospace, monospace; }
+  .file { display: grid; grid-template-columns: 16px 18px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 4px 12px; cursor: pointer; }
+  .file:hover, .file:focus-visible { background: #1f232b; outline: none; }
+  .file input[type=checkbox], #filesAll { width: 14px; height: 14px; margin: 0; padding: 0; accent-color: #7fb4ff; cursor: pointer; flex-shrink: 0; }
+  #filesDeleteSelected { color: #e88; }
+  .file .fname { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .file.dir .fname { color: #7fb4ff; }
+  .file .meta { color: #8a93a2; font-size: 11px; text-align: right; }
+  #filesPane.dropping #filesList { outline: 2px dashed #7fb4ff; outline-offset: -6px; background: #161b24; }
+  .file.drop-target { background: #26364f; }
+  .files-empty { padding: 12px; color: #8a93a2; font: 12px system-ui, sans-serif; }
+  #filePreview { flex: 1; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid #2a2e37; }
+  #previewBar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; background: #1c1f26; font-size: 12px; }
+  #previewName { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 12px ui-monospace, monospace; }
+  #previewBody { flex: 1; margin: 0; padding: 8px 12px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: #0e1013; font: 12px/1.35 ui-monospace, monospace; }
+  #term { flex: 1; margin: 0; padding: 8px 12px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: #0e1013; font: 12px/1.35 ui-monospace, monospace; }
+  #stdin { border: 0; border-radius: 0; border-top: 1px solid #2a2e37; background: #16191e; padding: 8px 12px; font: 12px/1.35 ui-monospace, monospace; }
+  @media (max-width: 800px) {
+    main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 3fr) minmax(0, 2fr); }
+    #chatPane { border-right: 0; border-bottom: 1px solid #2a2e37; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>TinyEMU Agent</h1>
+  <label>provider <select id="provider"></select></label>
+  <label id="urlField" hidden>URL <input id="baseURL" type="url" size="26" placeholder="https://host/v1" autocomplete="off"></label>
+  <label id="keyField">API key <input id="apiKey" type="password" size="16" autocomplete="off" placeholder="saved in this browser"></label>
+  <button id="connect" title="List the provider's models">Connect</button>
+  <label>model <select id="model"></select></label>
+  <label id="effortField" title="How much the model thinks. Applies from your next message; with Claude a change mid-conversation re-reads the history uncached once.">thinking <select id="effort"></select></label>
+  <button id="forget" hidden title="Delete the provider, URL, API key and model saved in this browser">Clear saved</button>
+  <span id="status" class="badge">starting</span>
+</header>
+<main>
+  <section id="chatPane">
+    <div id="chatBar">
+      <div role="tablist" aria-label="Chat view">
+        <button role="tab" id="tabChat" aria-selected="true" aria-controls="chatView">Chat</button>
+        <button role="tab" id="tabSettings" aria-selected="false" aria-controls="settingsPane">Settings</button>
+      </div>
+      <span id="usageBrief" title="Tokens used in this conversation, sub-agents included"></span>
+    </div>
+    <div id="chatView" role="tabpanel" aria-labelledby="tabChat">
+      <div id="log" aria-live="polite"></div>
+      <form id="chat">
+        <textarea id="prompt" placeholder="Ask the agent to do something in the VM. Enter sends, Shift+Enter adds a line." disabled></textarea>
+        <button id="send" disabled>Send</button>
+      </form>
+    </div>
+    <div id="settingsPane" role="tabpanel" aria-labelledby="tabSettings" hidden>
+      <h2>Tools</h2>
+      <p class="hint">What the model can use. A change applies from your next message, in the same conversation.</p>
+      <div id="toolToggles"></div>
+      <h2>Features</h2>
+      <div class="toggles">
+        <label><input type="checkbox" id="optMentions"> Replace <code>@skill</code> mentions in my messages with the skill's instructions</label>
+        <label><input type="checkbox" id="optThinking"> Show the model's thinking in the chat</label>
+      </div>
+      <h2>Token usage <span class="hint">this conversation</span> <button id="usageReset" title="Start counting from zero">Reset</button></h2>
+      <div id="usageWrap"><table id="usageTable"></table></div>
+      <p class="hint">Input counts uncached input tokens only; cached tokens are under Cache read. Output includes
+        thinking. Claude doesn't report thinking tokens separately (—); OpenAI-style APIs that do show them.
+        Sub-agents are the Delegate tool's.</p>
+    </div>
+  </section>
+  <section>
+    <div id="vmBar">
+      <div role="tablist" aria-label="VM view">
+        <button role="tab" id="tabConsole" aria-selected="true" aria-controls="consolePane">Console</button>
+        <button role="tab" id="tabFiles" aria-selected="false" aria-controls="filesPane">Files</button>
+        <button role="tab" id="tabSkills" aria-selected="false" aria-controls="skillsPane">Skills</button>
+      </div>
+      <button id="saveState" disabled title="Save the running VM so that reloading the page resumes it">Save state</button>
+      <button id="freshBoot" title="Forget the saved state and boot the VM from scratch">Fresh boot</button>
+      <span id="snapInfo"></span>
+    </div>
+    <div id="consolePane" role="tabpanel" aria-labelledby="tabConsole">
+      <pre id="term"></pre>
+      <input id="stdin" placeholder="VM console: type a command, Enter sends" autocomplete="off">
+    </div>
+    <div id="filesPane" role="tabpanel" aria-labelledby="tabFiles" hidden>
+      <div id="filesBar">
+        <input id="filesAll" type="checkbox" aria-label="Select everything in this folder" title="Select everything in this folder">
+        <nav id="crumbs" aria-label="Folder"></nav>
+        <button id="filesDeleteSelected" hidden title="Delete the ticked files and folders">Delete</button>
+        <button id="filesReconnect" hidden title="Give the browser access again to the linked folders on your computer">Reconnect</button>
+        <button id="filesLink" title="Link a folder on your computer into this folder: its files are copied here and kept in sync both ways">Link folder</button>
+        <button id="filesRefresh" title="List the folder again">Refresh</button>
+        <button id="filesUpload" title="Copy files from this computer into the folder (or drop files and folders here)">Upload</button>
+        <input id="filesPick" type="file" multiple hidden>
+      </div>
+      <div id="filesList" role="list"></div>
+      <div id="filePreview" hidden>
+        <div id="previewBar">
+          <span id="previewName"></span>
+          <button id="previewDownload">Download</button>
+          <button id="previewDelete">Delete</button>
+          <button id="previewClose">Close</button>
+        </div>
+        <pre id="previewBody"></pre>
+      </div>
+    </div>
+    <div id="skillsPane" role="tabpanel" aria-labelledby="tabSkills" hidden>
+      <div id="skillsBar">
+        <span id="skillsHint">In the VM at <code>/agent/skills</code>. Type <code>@id</code> in a prompt to include a skill.</span>
+        <button id="skillsImport" title="Import a skill folder, or a folder of skill folders (or drop them here)">Import folder</button>
+        <input id="skillsPick" type="file" webkitdirectory multiple hidden>
+      </div>
+      <div id="skillsList" role="list"></div>
+      <div id="skillView" hidden>
+        <div id="skillViewBar">
+          <button id="skillBack" title="Back to the list of skills">← Skills</button>
+          <span id="skillViewName"></span>
+        </div>
+        <div id="skillViewBody">
+          <nav id="skillFiles" aria-label="The skill's files"></nav>
+          <pre id="skillFileBody"></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+import { SnapshotStore, snapshotFingerprint, VMManager } from './engine/vm/index.js';
+import { GuestBridge, VOLUME, WORKSPACE, WORKSPACE_VOLUME } from './js/GuestBridge.js';
+import { asText, FileBrowser, formatSize, readEntry } from './js/FileBrowser.js';
+import { LinkError, LinkedFolders } from './js/LinkedFolders.js';
+import { ALL_TOOL_NAMES, createTools, DELEGATE_TOOL } from './js/tools.js';
+import { SKILL_FILE, SkillLibrary, SKILLS_DIR, SKILLS_STORAGE_KEY, SKILLS_VOLUME } from './js/skills.js';
+import { Agent, createDelegate, SYSTEM_PROMPT, TOOL_ARG } from './js/Agent.js';
+import { CLAUDE_EFFORTS, ClaudeProvider, listClaudeModels } from './js/providers/claude.js';
+import { listOpenAIModels, OPENAI_EFFORTS, OPENAI_PRESETS, OpenAICompatProvider } from './js/providers/openai.js';
+import { hasWebGPU, WebLLMProvider, WEBLLM_MODELS } from './js/providers/webllm.js';
+
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+
+/* ---- status and terminal ---------------------------------------------- */
+
+function setStatus(text, kind = '') {
+    $('status').textContent = text;
+    $('status').className = `badge ${kind}`;
+}
+
+/* Boot progress: the stage (from the guest agent, or recognized in the kernel
+ * log), how long it has taken, and whether the emulator is fetching files. */
+const BOOT_STAGES = [
+    [/Decompressing Linux/, 'decompressing the kernel'],
+    [/\[ *\d+\.\d+\] /, 'starting the kernel'],
+    [/virtio_blk|EXT[24]-fs|VFS: Mounted root/, 'mounting the disk'],
+    [/Run \/\S+ as init/, 'starting the shell'],
+];
+const boot = { t0: performance.now(), stage: 'loading the emulator', next: 0, downloading: false, timer: 0 };
+const bootSeconds = () => Math.round((performance.now() - boot.t0) / 1000);
+function showBoot() {
+    setStatus(`${boot.stage} · ${bootSeconds()} s${boot.downloading ? ' · downloading' : ''}`);
+}
+function bootStage(stage) { boot.stage = stage; showBoot(); }
+function bootLog(tail) {
+    while (boot.next < BOOT_STAGES.length) {
+        const i = BOOT_STAGES.findIndex(([re], n) => n >= boot.next && re.test(tail));
+        if (i < 0) return;
+        boot.next = i + 1;
+        bootStage(BOOT_STAGES[i][1]);
+    }
+}
+function bootEnd() { clearInterval(boot.timer); boot.timer = 0; }
+
+function stripAnsi(s) {
+    return s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\x1b[()][0-9A-Za-z]/g, '')
+        .replace(/\x1b[=>]/g, '').replace(/[\x00\x07\r]/g, '');
+}
+
+const dec = new TextDecoder();
+/* Guest output can arrive far faster than the page can lay it out, so it is
+ * batched (a timer, not a frame callback, which never fires in a hidden tab)
+ * and only the last TERM_KEEP characters are kept. */
+const TERM_KEEP = 200000;
+let consoleTail = '';
+let termPending = '';
+function writeConsole(bytes) {
+    const text = stripAnsi(dec.decode(bytes, { stream: true }));
+    consoleTail = (consoleTail + text).slice(-200);
+    if (boot.timer) bootLog(consoleTail);
+    if (!termPending) setTimeout(flushConsole, 30);
+    termPending = (termPending + text).slice(-TERM_KEEP);
+}
+function flushConsole() {
+    const term = $('term');
+    const atEnd = term.scrollTop + term.clientHeight >= term.scrollHeight - 4;
+    const text = termPending;
+    termPending = '';
+    if (term.textContent.length + text.length > TERM_KEEP) {
+        term.textContent = (term.textContent + text).slice(-TERM_KEEP / 2);
+    } else {
+        term.append(text);
+    }
+    if (atEnd) term.scrollTop = term.scrollHeight;
+}
+
+/* ---- chat log. Guest and model text only ever go in as textContent. --- */
+
+const log = $('log');
+function follow() {
+    if (log.scrollTop + log.clientHeight >= log.scrollHeight - 80) log.scrollTop = log.scrollHeight;
+}
+function addMessage(kind, text = '') {
+    const el = document.createElement('div');
+    el.className = `msg ${kind}`;
+    el.textContent = text;
+    log.append(el);
+    log.scrollTop = log.scrollHeight;
+    return el;
+}
+
+
+/* Tool cards start collapsed. Opening or closing one by hand makes that the way
+ * new cards start, remembered in this browser. */
+const CARDS_OPEN = 'tinyemu-agent-tool-cards-open';
+const cardsOpen = {
+    get() { try { return localStorage.getItem(CARDS_OPEN) === '1'; } catch { return false; } },
+    set(open) { try { localStorage.setItem(CARDS_OPEN, open ? '1' : '0'); } catch { /* not remembered */ } },
+};
+
+function addToolCard(call) {
+    const card = document.createElement('details');
+    const summary = document.createElement('summary');
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = call.name;
+    const spinner = document.createElement('span');
+    spinner.className = 'spinner';
+    spinner.title = 'running';
+    // First, so the float sits at the right of the line, not below the text.
+    summary.append(spinner, name, ` ${call.input?.[TOOL_ARG[call.name]] ?? ''}`);
+    const input = document.createElement('pre');
+    input.className = 'input';
+    input.textContent = JSON.stringify(call.input, null, 2);
+    const output = document.createElement('pre');
+    card.append(summary, input, output);
+    card.open = cardsOpen.get();
+    // A click on the summary (or Enter/Space on it) toggles the card after the
+    // handlers run; `toggle` events would also fire for the line above.
+    summary.addEventListener('click', () => setTimeout(() => cardsOpen.set(card.open)));
+    log.append(card);
+    log.scrollTop = log.scrollHeight;
+    return { card, output, spinner };
+}
+
+function uiHooks() {
+    let textEl = null;
+    let thinkEl = null;
+    const cards = new Map();
+    return {
+        stepStart() { textEl = null; thinkEl = null; },
+        text(t) {
+            textEl ||= addMessage('assistant');
+            textEl.append(t);
+            follow();
+        },
+        thinking(t) {
+            if (!thinkEl) {
+                const box = document.createElement('details');
+                box.className = 'thinking';
+                const s = document.createElement('summary');
+                s.textContent = 'Thinking';
+                thinkEl = document.createElement('pre');
+                box.append(s, thinkEl);
+                log.append(box);
+                follow();
+            }
+            thinkEl.append(t);
+        },
+        toolStart(call) { textEl = null; cards.set(call.id, addToolCard(call)); },
+        toolOutput(call, t) {
+            const c = cards.get(call.id);
+            c.output.append(t);
+            c.output.scrollTop = c.output.scrollHeight;
+            follow();
+        },
+        toolEnd(call, result) {
+            const c = cards.get(call.id);
+            // A sub-agent's progress stays above its report; other output is replaced.
+            if (call.name === DELEGATE_TOOL && c.output.textContent) {
+                c.output.append(`\n\n── ${result.isError ? 'failed' : 'report'} ──\n${result.content}`);
+            } else {
+                c.output.textContent = result.content;
+            }
+            c.card.classList.toggle('failed', result.isError);
+            c.spinner.remove();
+            follow();
+            if (!$('filesPane').hidden) files.refresh();   // the call may have changed /workspace
+        },
+        usage(u) { addUsage('main', u); },
+    };
+}
+
+/* ---- model picker ----------------------------------------------------- */
+
+/* Pick a provider and give it a key (and a URL, for a custom one). Connect lists
+ * the models from the provider's own API, and choosing one starts a conversation
+ * with it. */
+const PROVIDERS = [
+    { id: 'claude', label: 'Claude (Anthropic)', kind: 'claude' },
+    ...OPENAI_PRESETS.map((p) => ({ ...p, kind: 'openai' })),
+    { id: 'custom', label: 'Other OpenAI-compatible API', kind: 'openai', custom: true },
+    { id: 'webllm', label: 'In this browser (WebGPU, no key)', kind: 'webllm' },
+];
+const currentProvider = () => PROVIDERS.find((p) => p.id === $('provider').value);
+const baseURLOf = (p) => (p.custom ? $('baseURL').value.trim().replace(/\/+$/, '') : p.baseURL);
+
+function fillProviders() {
+    for (const p of PROVIDERS) $('provider').append(new Option(p.label, p.id));
+}
+
+let modelsListed = false;
+/* The list starts with a "choose" entry, so picking any model is a change. */
+function setModels(models, emptyText) {
+    const sel = $('model');
+    sel.replaceChildren();
+    modelsListed = !!models?.length;
+    sel.append(new Option(modelsListed ? `choose a model (${models.length})` : emptyText, ''));
+    sel.options[0].disabled = modelsListed;
+    for (const m of models || []) sel.append(new Option(m.label || m.id, m.id));
+    sel.value = '';
+    updateControls();
+}
+
+/* The last connection that worked: provider, URL, key and model, kept in this
+ * browser's localStorage until "Clear saved". Storage can be unavailable (a
+ * private window, blocked site data), which just means nothing is remembered. */
+const SAVED_CONNECTION = 'tinyemu-agent-connection';
+const savedConnection = {
+    load() {
+        try { return JSON.parse(localStorage.getItem(SAVED_CONNECTION)) || null; } catch { return null; }
+    },
+    save(c) {
+        try { localStorage.setItem(SAVED_CONNECTION, JSON.stringify(c)); return true; } catch { return false; }
+    },
+    clear() {
+        try { localStorage.removeItem(SAVED_CONNECTION); } catch { /* nothing saved */ }
+    },
+};
+
+/* Put a saved connection back: fill the fields, list the models and connect to
+ * the saved one. */
+async function restoreConnection() {
+    const c = savedConnection.load();
+    if (!c || !PROVIDERS.some((p) => p.id === c.provider)) return;
+    $('provider').value = c.provider;
+    providerChanged();
+    $('baseURL').value = c.baseURL || '';
+    $('apiKey').value = c.apiKey || '';
+    $('forget').hidden = false;
+    await listModels();
+    if (!modelsListed) return;
+    if (![...$('model').options].some((o) => o.value === c.model)) {
+        addMessage('note', `The saved model ${c.model} is not in the list any more; pick another.`);
+        return;
+    }
+    $('model').value = c.model;
+    await chooseModel();
+}
+
+function forgetConnection() {
+    savedConnection.clear();
+    $('apiKey').value = '';
+    $('forget').hidden = true;
+    providerChanged();
+    addMessage('note', 'Deleted the saved connection from this browser. '
+        + (agent ? 'The current conversation carries on until you reload or pick another model.' : ''));
+}
+
+let listing = null;   // AbortController of the model listing in progress
+
+/* What the provider needs before Connect can list its models. */
+function providerChanged({ clearKey = false } = {}) {
+    const p = currentProvider();
+    listing?.abort();
+    // A key belongs to one provider: clear it on a switch, so it is never sent
+    // to another one.
+    if (clearKey) $('apiKey').value = '';
+    $('keyField').hidden = p.kind === 'webllm';
+    $('urlField').hidden = !p.custom;
+    fillEfforts(p);
+    setModels(null, 'press Connect');
+}
+
+async function listModels() {
+    const p = currentProvider();
+    listing?.abort();
+    if (p.kind === 'webllm') { setModels(WEBLLM_MODELS); $('model').focus(); return; }
+
+    const apiKey = $('apiKey').value.trim();
+    const baseURL = baseURLOf(p);
+    // A custom server may need no key (a local llama.cpp or Ollama, say).
+    if (p.custom && !/^https?:\/\/\S+$/.test(baseURL)) {
+        addMessage('problem', 'Enter the API URL first, like http://localhost:8080/v1.');
+        return;
+    }
+    if (!p.custom && !apiKey) { addMessage('problem', `Enter your ${p.label} API key first.`); return; }
+
+    const ctl = listing = new AbortController();
+    setModels(null, 'listing models…');
+    $('connect').disabled = true;
+    try {
+        const models = p.kind === 'claude'
+            ? await listClaudeModels({ apiKey, baseURL: localBaseURL(), signal: ctl.signal })
+            : await listOpenAIModels({ baseURL, apiKey, signal: ctl.signal });
+        if (ctl.signal.aborted) return;
+        setModels(models, 'no chat models listed');
+        if (models.length) $('model').focus();
+    } catch (e) {
+        if (ctl.signal.aborted) return;
+        setModels(null, 'could not list models');
+        // fetch() reports an unreachable server and a CORS refusal the same way.
+        const hint = e instanceof TypeError && p.custom
+            ? ' Check that the server is running and allows requests from this page (CORS).' : '';
+        addMessage('problem', `Could not list the ${p.label} models: ${e.message}.${hint}`);
+    } finally {
+        if (listing === ctl) updateControls();
+    }
+}
+
+/* ---- settings: tools and features ---------------------------------------- */
+
+/* Kept in this browser's localStorage. Without storage the defaults apply and a
+ * change lasts until the page reloads. */
+const SETTINGS = 'tinyemu-agent-settings';
+const SETTINGS_DEFAULT = { disabledTools: [], mentions: true, thinking: true, effort: {} };
+const settings = (() => {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(SETTINGS)); } catch { /* defaults */ }
+    const s = { ...SETTINGS_DEFAULT, ...(saved && typeof saved === 'object' ? saved : {}) };
+    if (!Array.isArray(s.disabledTools)) s.disabledTools = [];
+    if (!s.effort || typeof s.effort !== 'object') s.effort = {};
+    return s;
+})();
+function saveSettings() {
+    try { localStorage.setItem(SETTINGS, JSON.stringify(settings)); } catch { /* not remembered */ }
+}
+
+/* ---- thinking level ------------------------------------------------------- */
+
+/* Each wire format has its own scale; in-browser models have none. The choice is
+ * remembered per kind of provider. Claude starts at high, as it always ran. */
+const EFFORTS = { claude: CLAUDE_EFFORTS, openai: OPENAI_EFFORTS };
+const EFFORT_DEFAULT = { claude: 'high', openai: '' };
+const effortFor = (kind) => {
+    const saved = settings.effort[kind];
+    return EFFORTS[kind]?.includes(saved) ? saved : EFFORT_DEFAULT[kind] ?? '';
+};
+
+function fillEfforts(p) {
+    const levels = EFFORTS[p.kind];
+    $('effortField').hidden = !levels;
+    const sel = $('effort');
+    sel.replaceChildren();
+    for (const level of levels || []) sel.append(new Option(level || "model's default", level));
+    if (levels) sel.value = effortFor(p.kind);
+}
+
+$('effort').onchange = () => {
+    const kind = currentProvider().kind;
+    settings.effort[kind] = $('effort').value;
+    saveSettings();
+    // The running conversation takes it from its next request; sub-agents fork it.
+    if (agent?.provider.kind === kind) agent.provider.setEffort?.($('effort').value);
+};
+
+const TOOL_HINTS = {
+    Read: 'read files in the VM',
+    Edit: 'change part of a file',
+    Write: 'create or overwrite files',
+    Glob: 'find files by name',
+    Grep: 'search file contents',
+    Bash: 'run shell commands',
+    skill: 'load one of your skills (offered while you have any)',
+    Delegate: 'hand a task to a sub-agent with the same model and tools',
+};
+
+function renderSettings() {
+    const box = $('toolToggles');
+    box.replaceChildren();
+    for (const name of ALL_TOOL_NAMES) {
+        const label = document.createElement('label');
+        const box2 = document.createElement('input');
+        box2.type = 'checkbox';
+        box2.checked = !settings.disabledTools.includes(name);
+        box2.onchange = () => {
+            settings.disabledTools = settings.disabledTools.filter((n) => n !== name);
+            if (!box2.checked) settings.disabledTools.push(name);
+            saveSettings();
+        };
+        const tname = document.createElement('span');
+        tname.className = 'tname';
+        tname.textContent = name;
+        const tdesc = document.createElement('span');
+        tdesc.className = 'tdesc';
+        tdesc.textContent = TOOL_HINTS[name] || '';
+        label.append(box2, tname, tdesc);
+        box.append(label);
+    }
+    $('optMentions').checked = settings.mentions;
+    $('optThinking').checked = settings.thinking;
+    log.classList.toggle('hide-thinking', !settings.thinking);
+}
+$('optMentions').onchange = () => { settings.mentions = $('optMentions').checked; saveSettings(); };
+$('optThinking').onchange = () => {
+    settings.thinking = $('optThinking').checked;
+    log.classList.toggle('hide-thinking', !settings.thinking);
+    saveSettings();
+};
+renderSettings();
+
+function showChatTab(tab) {
+    const onSettings = tab === 'settings';
+    $('tabChat').setAttribute('aria-selected', String(!onSettings));
+    $('tabSettings').setAttribute('aria-selected', String(onSettings));
+    $('chatView').hidden = onSettings;
+    $('settingsPane').hidden = !onSettings;
+    if (!onSettings) $('prompt').focus();
+}
+$('tabChat').onclick = () => showChatTab('chat');
+$('tabSettings').onclick = () => showChatTab('settings');
+
+/* ---- token usage ---------------------------------------------------------- */
+
+/* Per conversation: the main agent's requests and its sub-agents', as the
+ * providers report them (see Agent.js for the shape). */
+const USAGE_COLUMNS = [
+    ['requests', 'Requests'], ['input', 'Input'], ['cacheWrite', 'Cache write'],
+    ['cacheRead', 'Cache read'], ['output', 'Output'], ['thinking', 'Thinking'],
+];
+const emptyUsage = () => ({ requests: 0, input: 0, cacheWrite: 0, cacheRead: 0, output: 0, thinking: 0, thinkingKnown: false });
+const usage = { main: emptyUsage(), sub: emptyUsage() };
+
+function addUsage(who, u) {
+    const t = usage[who];
+    t.requests++;
+    for (const k of ['input', 'cacheWrite', 'cacheRead', 'output']) t[k] += u[k] || 0;
+    if (Number.isInteger(u.thinking)) { t.thinking += u.thinking; t.thinkingKnown = true; }
+    renderUsage();
+}
+function resetUsage() {
+    usage.main = emptyUsage();
+    usage.sub = emptyUsage();
+    renderUsage();
+}
+$('usageReset').onclick = resetUsage;
+
+const fmt = (n) => n.toLocaleString();
+const short = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(n));
+
+function renderUsage() {
+    const total = emptyUsage();
+    for (const t of [usage.main, usage.sub]) {
+        for (const [k] of USAGE_COLUMNS) total[k] += t[k];
+        total.thinkingKnown ||= t.thinkingKnown;
+    }
+    const table = $('usageTable');
+    table.replaceChildren();
+    const head = table.createTHead().insertRow();
+    for (const label of ['', ...USAGE_COLUMNS.map(([, l]) => l)]) {
+        const th = document.createElement('th');
+        th.textContent = label;
+        head.append(th);
+    }
+    const body = table.createTBody();
+    for (const [label, t, cls] of [['Main agent', usage.main], ['Sub-agents', usage.sub], ['Total', total, 'total']]) {
+        const row = body.insertRow();
+        if (cls) row.className = cls;
+        row.insertCell().textContent = label;
+        for (const [k] of USAGE_COLUMNS) {
+            row.insertCell().textContent = k === 'thinking' && !t.thinkingKnown ? '—' : fmt(t[k]);
+        }
+    }
+    $('usageBrief').textContent = total.requests
+        ? `in ${short(total.input + total.cacheWrite)} · cached ${short(total.cacheRead)} · out ${short(total.output)}`
+            + (total.thinkingKnown ? ` (thinking ${short(total.thinking)})` : '')
+        : '';
+}
+renderUsage();
+
+/* ---- wiring ----------------------------------------------------------- */
+
+/* The model can connect while the VM boots: tool calls wait for the bridge (with
+ * a limit, see createTools), so this settles once the guest agent is up, or with
+ * the reason the boot failed. */
+let vmReady;
+/* Read from IndexedDB now, so the skill tool and @mentions work before the VM is up. */
+const skills = new SkillLibrary();
+/* Folders on the user's computer, linked into the workspace (js/LinkedFolders.js). */
+const links = new LinkedFolders({ volume: WORKSPACE_VOLUME, root: WORKSPACE });
+const tools = createTools(new Promise((resolve, reject) => { vmReady = { resolve, reject }; }), {
+    skills,
+    sync: () => links.sync(),
+    delegate: (input, ctx) => delegate(input, ctx),
+    isEnabled: (name) => !settings.disabledTools.includes(name),
+});
+/* Sub-agents get the same tools and settings, minus Delegate itself. */
+const delegate = createDelegate({
+    tools: tools.without(DELEGATE_TOOL),
+    on: { usage: (u) => addUsage('sub', u) },
+});
+let agent = null;
+let running = null;   // AbortController of the turn in progress
+
+let loading = false;   // a chosen model is being loaded
+function updateControls() {
+    const usable = !!agent;
+    $('prompt').disabled = !usable;
+    $('send').disabled = !usable;
+    $('send').textContent = running ? 'Stop' : 'Send';
+    // Switching model starts a new conversation, so not in the middle of a turn.
+    $('connect').disabled = !!running || loading;
+    $('model').disabled = !!running || loading || !modelsListed;
+}
+
+/* ?baseURL= points the API client at a local proxy or test server. Loopback only:
+ * otherwise a crafted link could send the key the user types here to any host. */
+function localBaseURL() {
+    const value = params.get('baseURL');
+    if (!value) return undefined;
+    const { hostname } = new URL(value);
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') throw new Error('baseURL must be on localhost');
+    return value;
+}
+
+/* Choosing a model from the list connects to it. */
+async function chooseModel() {
+    const p = currentProvider();
+    const model = $('model').value;
+    if (!model) return;
+    const common = { model, system: SYSTEM_PROMPT, tools: tools.defs };
+    const apiKey = $('apiKey').value.trim();
+    loading = true;
+    updateControls();
+    try {
+        const effort = effortFor(p.kind);
+        const provider = p.kind === 'claude'
+            ? new ClaudeProvider({ ...common, apiKey, baseURL: localBaseURL(), effort })
+            : p.kind === 'openai'
+                ? new OpenAICompatProvider({ ...common, apiKey, baseURL: baseURLOf(p), effort })
+                : new WebLLMProvider({ ...common, onProgress: (t) => { $('connect').textContent = t.slice(0, 40); } });
+        provider.kind = p.kind;   // which thinking scale applies to it
+        await provider.load();
+        useProvider(provider, `${p.label}: ${model}`);
+        if (savedConnection.save({ provider: p.id, baseURL: p.custom ? $('baseURL').value.trim() : undefined, apiKey, model })) {
+            $('forget').hidden = false;
+        }
+    } catch (e) {
+        addMessage('problem', `Could not load the model: ${e.message}`);
+    } finally {
+        loading = false;
+        $('connect').textContent = 'Connect';
+        updateControls();
+    }
+}
+
+function useProvider(provider, label) {
+    agent = new Agent({ provider, tools, on: uiHooks() });
+    resetUsage();
+    addMessage('note', `Connected to ${label}. This starts a new conversation.`);
+    updateControls();
+    $('prompt').focus();
+}
+
+async function sendPrompt() {
+    if (running) { running.abort(); return; }
+    const text = $('prompt').value.trim();
+    if (!text || !agent) return;
+    $('prompt').value = '';
+    addMessage('user', text);
+    running = new AbortController();
+    updateControls();
+    try {
+        // The guest can add or edit skills too, so look again before each turn.
+        await skills.refresh().catch(() => {});
+        await links.sync().catch(() => {});
+        const { text: expanded, used } = settings.mentions ? await skills.expandMentions(text) : { text, used: [] };
+        if (used.length) addMessage('note', `Included the instructions of ${used.map((id) => `@${id}`).join(', ')}.`);
+        const r = await agent.send(expanded, running.signal);
+        if (r.stop === 'aborted') addMessage('note', 'Stopped.');
+        else if (r.stop !== 'end') addMessage('problem', r.detail || `Stopped: ${r.stop}`);
+    } catch (e) {
+        addMessage('problem', e.message);
+    } finally {
+        running = null;
+        updateControls();
+    }
+}
+
+fillProviders();
+providerChanged();
+if (savedConnection.load()) {
+    restoreConnection();
+} else {
+    // Prefer the model that needs no key, where this machine can run it.
+    hasWebGPU().then((ok) => {
+        if (ok && !$('apiKey').value && !modelsListed) { $('provider').value = 'webllm'; providerChanged(); }
+    });
+}
+$('forget').onclick = forgetConnection;
+$('provider').onchange = () => providerChanged({ clearKey: true });
+// A new key or URL may list other models: Connect again to see them.
+$('apiKey').oninput = () => providerChanged();
+$('baseURL').oninput = () => providerChanged();
+$('apiKey').onkeydown = (e) => { if (e.key === 'Enter') listModels(); };
+$('baseURL').onkeydown = (e) => { if (e.key === 'Enter') listModels(); };
+$('connect').onclick = listModels;
+$('model').onchange = chooseModel;
+$('chat').onsubmit = (e) => { e.preventDefault(); sendPrompt(); };
+$('prompt').onkeydown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!running) sendPrompt(); }
+};
+
+/* ---- boot ------------------------------------------------------------- */
+
+/* Reloading the page resumes the VM from a saved snapshot when there is one
+ * that matches this engine build, config and disk image (SnapshotStore checks),
+ * instead of booting it again. A cold boot saves one as soon as the VM is ready;
+ * "Save state" saves the VM as it is now. ?nosnapshot=1 skips all of this. */
+const SNAPSHOT_KEY = 'tinyemu-agent-vm';
+let snapshotFp = null;   // the running VM's snapshot fingerprint, if snapshots are on
+let liveVM = null;
+
+/* ?distro=<name> boots distro/<name>/ instead of the default; a name that isn't
+ * a plain folder name is ignored, so the link can't point outside distro/. */
+const DEFAULT_DISTRO = 'alpine-3.20-x86';
+function distroName() {
+    const name = params.get('distro');
+    return name && /^[\w-][\w.-]*$/.test(name) ? name : DEFAULT_DISTRO;
+}
+
+const VM_OPTIONS = {
+    // A distro's guest.cfg names its kernel and disk relative to itself, so the
+    // page works from any static host and path. serve.mjs generates it; a release
+    // build (scripts/build.mjs) writes it next to the distro. ?cfg= boots any config.
+    configUrl: params.get('cfg') || `distro/${distroName()}/guest.cfg`,
+    mode: 'worker',
+    memoryMB: parseInt(params.get('mem'), 10) || 256,
+    cmdline: [
+        // Make the boot visible: early messages go to the serial port, which
+        // shares the console, and the log level is raised.
+        'earlyprintk=ttyS0 loglevel=7',
+        // Keep time with the TSC, which runs at a fixed 100 MHz of host time
+        // (TSC_FREQ in x86_machine.c). Linux can't calibrate it against the
+        // PIT here, so it would count timer ticks instead, and the WASM
+        // emulator can't deliver 1000 a second, so the guest clock ran slow.
+        // highres/nohz off keep the tick periodic, which is much cheaper to
+        // emulate than reprogramming the PIT for every timer.
+        'tsc_early_khz=100000 tsc=reliable highres=off nohz=off',
+    ].join(' '),
+    hasNetwork: false,
+    cols: 80,
+    rows: 24,
+    volumes: [
+        { name: VOLUME, backend: 'indexeddb', type: 'files', storageKey: 'tinyemu-agent-bridge' },
+        { name: WORKSPACE_VOLUME, backend: 'indexeddb', type: 'files', storageKey: 'tinyemu-agent-workspace' },
+        { name: SKILLS_VOLUME, backend: 'indexeddb', type: 'files', storageKey: SKILLS_STORAGE_KEY },
+    ],
+};
+
+// Volumes save themselves every 3 s; also try when the page goes away.
+addEventListener('pagehide', () => { liveVM?.flush(); });
+
+/* ---- VM view: console and file tabs ------------------------------------- */
+
+const files = new FileBrowser({
+    els: {
+        crumbs: $('crumbs'), list: $('filesList'), refresh: $('filesRefresh'),
+        upload: $('filesUpload'), pick: $('filesPick'), preview: $('filePreview'),
+        previewName: $('previewName'), previewBody: $('previewBody'),
+        previewDownload: $('previewDownload'), previewDelete: $('previewDelete'),
+        previewClose: $('previewClose'), pane: $('filesPane'),
+        selectAll: $('filesAll'), deleteSelected: $('filesDeleteSelected'),
+    },
+    volume: WORKSPACE_VOLUME,
+    root: WORKSPACE,
+    onProblem: (text) => addMessage('problem', text),
+    links,
+});
+
+/* ---- linked folders ------------------------------------------------------ */
+
+/* The File System Access API is in Chromium browsers only. Elsewhere the button
+ * stays, disabled, with the reason. */
+if (!window.showDirectoryPicker) {
+    $('filesLink').disabled = true;
+    $('filesLink').title = 'Linking a folder needs a browser with the File System Access API, such as Chrome or Edge.';
+}
+$('filesLink').onclick = async () => {
+    let handle;
+    try {
+        handle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'tinyemu-agent-link' });
+    } catch (e) {
+        if (e?.name !== 'AbortError') addMessage('problem', `Could not open the folder picker: ${e.message}`);
+        return;
+    }
+    await linkFolder(handle);
+};
+
+async function linkFolder(handle, dir = files.path) {
+    $('filesLink').disabled = true;
+    const old = $('filesLink').textContent;
+    $('filesLink').textContent = 'Linking…';
+    try {
+        const r = await links.link(handle, dir);
+        addMessage('note', `Linked ${handle.name} from your computer at ${WORKSPACE}${r.path} (${r.files} files, `
+            + `${formatSize(r.bytes)}). Changes on either side are synced at each tool call, message and refresh; `
+            + 'deleting a file there deletes it on your computer too. Delete the folder in the workspace to unlink it.');
+    } catch (e) {
+        addMessage('problem', e instanceof LinkError ? e.message : `Could not link ${handle.name}: ${e.message}`);
+    } finally {
+        $('filesLink').textContent = old;
+        $('filesLink').disabled = !window.showDirectoryPicker;
+        files.refresh();
+    }
+}
+
+$('filesReconnect').onclick = async () => {
+    const ok = await links.reconnect();
+    if (!ok) addMessage('problem', 'The browser still has no access to some linked folders; they stay as they were and are not synced.');
+    files.refresh();
+};
+links.on((type, text, kind) => {
+    if (type === 'notice') addMessage(kind === 'problem' ? 'problem' : 'note', text);
+    if (type === 'change') {
+        const waiting = links.needingPermission.length;
+        $('filesReconnect').hidden = !waiting;
+        $('filesReconnect').textContent = `Reconnect (${waiting})`;
+    }
+});
+// Coming back to the page, perhaps from editing a linked file elsewhere.
+addEventListener('focus', () => { if (!$('filesPane').hidden) files.refresh(); else links.sync().catch(() => {}); });
+links.load().then(() => {
+    if (links.needingPermission.length) {
+        addMessage('note', `${links.needingPermission.length === 1 ? 'A linked folder needs' : 'Linked folders need'} `
+            + 'your permission again after the reload. Press Reconnect in the Files tab; until then they are not synced.');
+    }
+});
+
+const TABS = { console: ['tabConsole', 'consolePane'], files: ['tabFiles', 'filesPane'], skills: ['tabSkills', 'skillsPane'] };
+function showTab(tab) {
+    for (const [name, [tabId, paneId]] of Object.entries(TABS)) {
+        $(tabId).setAttribute('aria-selected', String(name === tab));
+        $(paneId).hidden = name !== tab;
+    }
+    if (tab === 'files') files.refresh();
+    else if (tab === 'skills') skills.refresh().then(renderSkills, () => {});
+    else $('term').scrollTop = $('term').scrollHeight;
+}
+$('tabConsole').onclick = () => showTab('console');
+$('tabFiles').onclick = () => showTab('files');
+$('tabSkills').onclick = () => showTab('skills');
+
+/* ---- skills ------------------------------------------------------------- */
+
+/* Skill names and descriptions come from imported files: text only. */
+function renderSkills(list = skills.list()) {
+    // A skill removed while open (here or from the guest) closes its view.
+    if (openSkillId && !list.some((s) => s.id === openSkillId)) closeSkill();
+    const box = $('skillsList');
+    box.replaceChildren();
+    if (!list.length) {
+        const empty = document.createElement('div');
+        empty.className = 'files-empty';
+        empty.textContent = 'No skills yet. A skill is a folder with a SKILL.md in it (name and description in its '
+            + 'frontmatter). Press Import folder, or drop skill folders here.';
+        box.append(empty);
+        return;
+    }
+    for (const s of list) {
+        const row = document.createElement('div');
+        row.className = 'skill';
+        row.setAttribute('role', 'listitem');
+        const id = document.createElement('div');
+        id.className = 'sid';
+        id.append(`@${s.id}`);
+        if (s.name !== s.id) {
+            const name = document.createElement('span');
+            name.className = 'sname';
+            name.textContent = ` · ${s.name}`;
+            id.append(name);
+        }
+        const del = document.createElement('button');
+        del.textContent = 'Delete';
+        del.title = `Delete ${SKILLS_DIR}/${s.id}`;
+        del.onclick = async () => {
+            if (!confirm(`Delete the skill ${s.id} (${SKILLS_DIR}/${s.id})? This can't be undone.`)) return;
+            try { await skills.remove(s.id); } catch (e) { addMessage('problem', `Could not delete ${s.id}: ${e.message}`); }
+        };
+        const open = document.createElement('button');
+        open.textContent = 'Open';
+        open.title = `Show ${SKILLS_DIR}/${s.id}/SKILL.md and the skill's files`;
+        open.onclick = () => openSkill(s.id);
+        const buttons = document.createElement('div');
+        buttons.className = 'sbuttons';
+        buttons.append(open, del);
+        const desc = document.createElement('div');
+        desc.className = 'sdesc';
+        desc.textContent = s.description || '(no description in its SKILL.md)';
+        row.append(id, buttons, desc);
+        box.append(row);
+    }
+}
+
+/* One skill's view: its files on the left, the chosen one's text on the right.
+ * Everything in it comes from imported files, so it goes in as text only. */
+const SKILL_PREVIEW_MAX = 2 * 1024 * 1024;
+let openSkillId = null;
+let skillViewSeq = 0;   // a slow read must not overwrite a newer choice
+
+async function openSkill(id) {
+    const seq = ++skillViewSeq;
+    let list;
+    try { list = await skills.files(id); } catch (e) { addMessage('problem', `Could not open ${id}: ${e.message}`); return; }
+    if (seq !== skillViewSeq) return;
+    openSkillId = id;
+    $('skillsBar').hidden = true;
+    $('skillsList').hidden = true;
+    $('skillView').hidden = false;
+    $('skillViewName').textContent = `${SKILLS_DIR}/${id}`;
+    const nav = $('skillFiles');
+    nav.replaceChildren();
+    for (const f of list) {
+        const row = document.createElement('div');
+        row.className = 'sfile';
+        row.tabIndex = 0;
+        row.setAttribute('role', 'button');
+        row.dataset.path = f.path;
+        const name = document.createElement('span');
+        name.className = 'fname';
+        // Long paths wrap after a slash rather than inside a name.
+        f.path.split('/').forEach((part, i, parts) => {
+            name.append(i < parts.length - 1 ? `${part}/` : part);
+            if (i < parts.length - 1) name.append(document.createElement('wbr'));
+        });
+        const size = document.createElement('span');
+        size.className = 'meta';
+        size.textContent = formatSize(f.size);
+        row.append(name, size);
+        row.onclick = () => showSkillFile(id, f.path);
+        row.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); showSkillFile(id, f.path); } };
+        nav.append(row);
+    }
+    await showSkillFile(id, list.some((f) => f.path === SKILL_FILE) ? SKILL_FILE : list[0]?.path);
+}
+
+async function showSkillFile(id, path) {
+    const seq = ++skillViewSeq;
+    for (const row of $('skillFiles').children) row.setAttribute('aria-current', String(row.dataset.path === path));
+    const body = $('skillFileBody');
+    if (!path) { body.textContent = 'This skill has no files.'; return; }
+    const bytes = await skills.readFile(id, path).catch(() => null);
+    if (seq !== skillViewSeq) return;
+    if (!bytes) { body.textContent = `Could not read ${SKILLS_DIR}/${id}/${path}.`; return; }
+    const text = bytes.length <= SKILL_PREVIEW_MAX ? asText(bytes) : null;
+    body.textContent = text ?? (bytes.length > SKILL_PREVIEW_MAX
+        ? 'This file is too large to show here.'
+        : 'This is a binary file, so it is not shown here.');
+    body.scrollTop = 0;
+}
+
+function closeSkill() {
+    skillViewSeq++;
+    openSkillId = null;
+    $('skillView').hidden = true;
+    $('skillsBar').hidden = false;
+    $('skillsList').hidden = false;
+}
+$('skillBack').onclick = closeSkill;
+skills.onChange(renderSkills);
+skills.loadSaved().then(() => renderSkills(), () => renderSkills());
+
+async function importSkills(items) {
+    const { imported, problems } = await skills.import(items);
+    for (const p of problems) addMessage('problem', p);
+    if (imported.length) {
+        addMessage('note', `Imported ${imported.length === 1 ? 'the skill' : 'the skills'} `
+            + `${imported.map((id) => `@${id}`).join(', ')} into ${SKILLS_DIR}.`);
+    }
+}
+$('skillsImport').onclick = () => $('skillsPick').click();
+$('skillsPick').onchange = () => importSkills([...$('skillsPick').files]
+    .map((file) => ({ rel: file.webkitRelativePath || file.name, file })))
+    .finally(() => { $('skillsPick').value = ''; });
+
+/* Dropping folders onto the Skills tab imports them. */
+{
+    const pane = $('skillsPane');
+    let depth = 0;   // dragenter/leave fire for every child crossed
+    const carriesFiles = (ev) => [...(ev.dataTransfer?.types || [])].includes('Files');
+    pane.addEventListener('dragenter', (ev) => { if (carriesFiles(ev)) { depth++; pane.classList.add('dropping'); } });
+    pane.addEventListener('dragover', (ev) => {
+        if (!carriesFiles(ev)) return;
+        ev.preventDefault();
+        ev.dataTransfer.dropEffect = 'copy';
+    });
+    pane.addEventListener('dragleave', (ev) => {
+        if (carriesFiles(ev) && --depth <= 0) { depth = 0; pane.classList.remove('dropping'); }
+    });
+    pane.addEventListener('drop', async (ev) => {
+        if (!carriesFiles(ev)) return;
+        ev.preventDefault();
+        depth = 0;
+        pane.classList.remove('dropping');
+        // Read the entries before any await: the drop's data goes away after.
+        const entries = [...ev.dataTransfer.items].map((item) => (item.kind === 'file' ? item.webkitGetAsEntry?.() : null));
+        if (!entries.every(Boolean)) { addMessage('problem', 'Drop skill folders here; this browser did not pass them on as folders.'); return; }
+        await importSkills((await Promise.all(entries.map((e) => readEntry(e, '')))).flat());
+    });
+}
+$('tabSkills').addEventListener('dragenter', (e) => {
+    if ([...(e.dataTransfer?.types || [])].includes('Files')) showTab('skills');
+});
+// Dragging files over the Files tab opens it, so they can be dropped there.
+$('tabFiles').addEventListener('dragenter', (e) => {
+    if ([...(e.dataTransfer?.types || [])].includes('Files')) showTab('files');
+});
+
+/* Create the VM and race `work(vm)` against its failing to start: the engine
+ * logs a failed start without rejecting vm.start(). After `work` succeeds, a
+ * failure is fatal and shows in the status badge. */
+async function runVM(mgr, snapshot, work) {
+    const vm = await mgr.create('agent-vm', { ...VM_OPTIONS, snapshot });
+    files.setVM(vm);
+    let fail;
+    const failed = new Promise((_, reject) => { fail = reject; });
+    failed.catch(() => {});
+    let started = false;
+    const onFailure = (message) => {
+        if (!started) { fail(new Error(message)); return; }
+        bootEnd();
+        setStatus(`VM error: ${message}`, 'error');
+        vmReady.reject(new Error(message));
+    };
+    vm.onConsole(writeConsole);
+    vm.on('downloading', (flag) => { boot.downloading = flag; if (boot.timer) showBoot(); });
+    vm.onError((e) => onFailure(e.message));
+    vm.onLog(({ level, text }) => {
+        if (level !== 'err') return;
+        console.warn('[vm]', text);
+        if (text.startsWith('vm_start failed')) onFailure(text);
+    });
+    try {
+        const bridge = await Promise.race([work(vm), failed]);
+        started = true;
+        return { vm, bridge };
+    } catch (e) {
+        await mgr.destroy('agent-vm').catch(() => {});
+        throw e;
+    }
+}
+
+async function coldBoot(vm) {
+    bootStage('loading the kernel');
+    await vm.start();
+    useSkillsOf(vm);
+    const bridge = new GuestBridge(vm);
+    await bridge.start(() => consoleTail, { onStatus: bootStage });
+    return bridge;
+}
+
+/* From here on the VM's copy of the skills volume is the live one. */
+function useSkillsOf(vm) {
+    skills.setVM(vm);
+    skills.refresh().catch(() => {});
+    links.setVM(vm);
+    links.sync().catch(() => {});
+}
+
+async function resume(vm) {
+    await vm.start();
+    useSkillsOf(vm);
+    bootStage('reconnecting to the guest');
+    const bridge = new GuestBridge(vm);
+    if (!await bridge.attach()) throw new Error('the guest agent did not answer');
+    return bridge;
+}
+
+const megabytes = (n) => `${(n / 1048576).toFixed(0)} MB`;
+
+async function saveState({ auto = false } = {}) {
+    if (!liveVM || !snapshotFp) return;
+    $('saveState').disabled = true;
+    $('snapInfo').textContent = 'saving the VM state…';
+    try {
+        const { blob, info } = await liveVM.saveSnapshot();
+        await SnapshotStore.save(SNAPSHOT_KEY, snapshotFp, { blob, info });
+        $('snapInfo').textContent = `state saved ${new Date().toLocaleTimeString()} (${megabytes(blob.size)})`;
+        addMessage('note', `${auto ? 'Saved the booted VM' : 'Saved the VM'} (${megabytes(blob.size)}, paused for `
+            + `${info.pausedMs} ms). Reloading the page resumes it from here.`);
+    } catch (e) {
+        $('snapInfo').textContent = 'not saved';
+        addMessage('problem', `Could not save the VM state: ${e.message}`);
+    } finally {
+        $('saveState').disabled = false;
+    }
+}
+
+async function startVM() {
+    boot.timer = setInterval(showBoot, 1000);
+    showBoot();
+    const mgr = new VMManager({ network: { subnet: '10.0.2.0/24' } });
+
+    if (!params.has('nosnapshot')) {
+        bootStage('checking for a saved state');
+        snapshotFp = await snapshotFingerprint({
+            wasmUrl: new URL('./engine/x86emu-wasm.wasm', location.href).href,
+            configUrl: new URL(VM_OPTIONS.configUrl, location.href).href,
+            options: { ...VM_OPTIONS, volumes: undefined },
+        }).catch((e) => { console.warn('snapshot fingerprint', e); return null; });
+    }
+    const saved = snapshotFp && await SnapshotStore.load(SNAPSHOT_KEY, snapshotFp).catch(() => null);
+
+    let vm, bridge, how = 'booted';
+    if (saved) {
+        addMessage('note', `Resuming the VM saved at ${new Date(saved.savedAt).toLocaleString()} `
+            + `(${megabytes(saved.blob.size)}).`);
+        bootStage('restoring the saved state');
+        try {
+            ({ vm, bridge } = await runVM(mgr, saved.blob, resume));
+            how = 'resumed';
+            $('snapInfo').textContent = `resumed the state saved ${new Date(saved.savedAt).toLocaleString()}`;
+        } catch (e) {
+            addMessage('note', `Could not resume the saved state (${e.message}), so booting from scratch.`);
+            await SnapshotStore.delete(SNAPSHOT_KEY);
+        }
+    }
+    if (!vm) {
+        addMessage('note', 'Booting the VM. This takes about a minute; the console on the right shows the kernel starting up. '
+            + 'You can connect a model meanwhile: its tool calls wait for the VM.');
+        ({ vm, bridge } = await runVM(mgr, undefined, coldBoot));
+    }
+
+    liveVM = vm;
+    if (!$('filesPane').hidden) files.refresh();
+    $('stdin').onkeydown = (e) => {
+        if (e.key === 'Enter') { vm.sendInput($('stdin').value + '\n'); $('stdin').value = ''; }
+    };
+    vmReady.resolve(bridge);
+    bootEnd();
+    setStatus('VM ready', 'ready');
+    addMessage('note', `The VM is ready (${how} in ${bootSeconds()} s).${agent ? '' : ' Choose a provider, press Connect and pick a model.'}`);
+    if (snapshotFp) $('saveState').disabled = false;
+    else $('snapInfo').textContent = 'saving state is off';
+
+    // For console poking and for driving the page from tests.
+    window.agentDemo = { vm, bridge, tools, skills, links, linkFolder, settings, usage, useProvider, Agent, saveState };
+
+    if (how === 'booted' && snapshotFp) await saveState({ auto: true });
+}
+
+$('saveState').onclick = () => saveState();
+$('freshBoot').onclick = async () => {
+    await SnapshotStore.delete(SNAPSHOT_KEY);
+    location.reload();
+};
+
+startVM().catch((e) => { bootEnd(); setStatus(`boot failed: ${e.message}`, 'error'); vmReady.reject(e); });
+</script>
+</body>
+</html>
