@@ -48,7 +48,15 @@ function retryDelayMs(response, attempt) {
     return Number.isFinite(secs) ? Math.min(secs * 1000, 60000) : 2000 * 2 ** attempt;
 }
 
-/** The chat models a provider lists, as [{ id, label }], sorted by id. */
+/* /models has no standard field for the context window; servers that report it
+ * use one of these (OpenRouter, LM Studio, vLLM, llama.cpp, others). */
+function contextWindowOf(m) {
+    const n = m.context_length ?? m.context_window ?? m.max_context_length ?? m.max_model_len
+        ?? m.top_provider?.context_length ?? m.meta?.n_ctx ?? m.meta?.n_ctx_train;
+    return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/** The chat models a provider lists, as [{ id, label, contextWindow }], sorted by id. */
 export async function listOpenAIModels({ baseURL, apiKey, signal }) {
     const r = await fetch(`${baseURL}/models`, { headers: headers(apiKey), signal });
     const text = await r.text();
@@ -56,9 +64,9 @@ export async function listOpenAIModels({ baseURL, apiKey, signal }) {
     const data = JSON.parse(text).data || [];
     return data
         // Gemini lists "models/gemini-...", and takes the name without the prefix.
-        .map((m) => ({ id: String(m.id).replace(/^models\//, ''), label: m.display_name || m.name }))
+        .map((m) => ({ id: String(m.id).replace(/^models\//, ''), label: m.display_name || m.name, contextWindow: contextWindowOf(m) }))
         .filter((m) => !NOT_CHAT.test(m.id))
-        .map((m) => ({ id: m.id, label: m.label && m.label !== m.id ? `${m.label} (${m.id})` : m.id }))
+        .map((m) => ({ ...m, label: m.label && m.label !== m.id ? `${m.label} (${m.id})` : m.id }))
         .sort((a, b) => a.id.localeCompare(b.id));
 }
 
@@ -118,14 +126,22 @@ export function openAIUsage(u) {
 export const OPENAI_EFFORTS = ['', 'low', 'medium', 'high'];
 
 export class OpenAICompatProvider {
-    constructor({ apiKey, baseURL, model, system, tools, effort = '' }) {
+    constructor({ apiKey, baseURL, model, system, tools, effort = '', contextWindow = null }) {
         this.apiKey = apiKey;
         this.baseURL = baseURL;
         this.model = model;
         this.effort = effort;
+        this.contextWindow = contextWindow;   // tokens, or null if /models didn't say
+        this.system = system;
         this.setTools(tools);
         this.messages = [{ role: 'system', content: system }];
         this._seq = 0;
+    }
+
+    /** The system message leads the history; replace it. */
+    setSystem(system) {
+        this.system = system;
+        this.messages[0] = { role: 'system', content: system };
     }
 
     setTools(tools) {
@@ -138,15 +154,30 @@ export class OpenAICompatProvider {
     /* The model was picked from the provider's own list: nothing to load. */
     async load() {}
 
-    /** A new conversation with the same model and server, for a sub-agent. */
     /** Applies from the next request. */
     setEffort(effort) { this.effort = effort; }
 
+    /** A new conversation with the same model and server, for a sub-agent or a compaction. */
     fork({ system, tools }) {
         return new OpenAICompatProvider({
             apiKey: this.apiKey, baseURL: this.baseURL, model: this.model, system, tools, effort: this.effort,
+            contextWindow: this.contextWindow,
         });
     }
+
+    /** The history as plain entries, for a compaction summary. */
+    transcript() {
+        const out = [];
+        for (const m of this.messages.slice(1)) {
+            if (m.role === 'tool') { out.push({ role: 'result', text: String(m.content ?? '') }); continue; }
+            if (typeof m.content === 'string' && m.content) out.push({ role: m.role, text: m.content });
+            for (const c of m.tool_calls || []) out.push({ role: 'call', text: `${c.function?.name} ${c.function?.arguments || ''}` });
+        }
+        return out;
+    }
+
+    /** Keep the system prompt; replace the rest with one user message. */
+    resetHistory(text) { this.messages = [this.messages[0], { role: 'user', content: text }]; }
 
     addUser(text) { this.messages.push({ role: 'user', content: text }); }
 
@@ -232,7 +263,8 @@ export class OpenAICompatProvider {
         const body = JSON.stringify({
             model: this.model,
             messages: this.messages,
-            tools: this.tools,
+            // Some servers reject an empty list; a compaction request has no tools.
+            ...(this.tools.length ? { tools: this.tools } : {}),
             stream: true,
             stream_options: { include_usage: true },
             ...(this.effort ? { reasoning_effort: this.effort } : {}),

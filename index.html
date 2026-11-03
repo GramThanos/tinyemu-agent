@@ -26,6 +26,22 @@
   #chatBar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid #2a2e37; background: #1c1f26; color: #8a93a2; font-size: 12px; }
   #chatBar button { padding: 2px 8px; font-size: 12px; }
   #usageBrief { flex: 1; min-width: 0; text-align: right; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 11px ui-monospace, monospace; }
+  #contextMeter { display: flex; gap: 6px; align-items: center; flex-shrink: 0; font: 11px ui-monospace, monospace; }
+  #contextMeter[hidden] { display: none; }
+  .cbar { position: relative; width: 56px; height: 6px; border-radius: 3px; background: #2a2e37; overflow: hidden; }
+  #contextFill { position: absolute; inset: 0 auto 0 0; width: 0; background: #4f8fe0; }
+  #contextFill.near { background: #c99a2e; }
+  #contextFill.over { background: #d05555; }
+  #contextMark { position: absolute; top: 0; bottom: 0; width: 1px; background: #e6e6e6; opacity: .6; }
+  #chatBar #compactNow { flex-shrink: 0; }
+  #optSystem { width: 100%; min-height: 220px; resize: vertical; font: 12px/1.4 ui-monospace, monospace; }
+  .sysbar { display: flex; gap: 8px; margin-top: 6px; }
+  .sysbar button { padding: 2px 8px; font-size: 12px; }
+  #contextStats { margin-top: 8px; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; font-size: 12px; }
+  #contextStats dt { color: #8a93a2; }
+  #contextStats dd { margin: 0; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+  details.compaction { color: #8a93a2; font-size: 12px; }
+  details.compaction summary { font-family: system-ui, sans-serif; }
   #chatView, #settingsPane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   #settingsPane { overflow: auto; padding: 4px 14px 14px; }
   #settingsPane h2 { display: flex; gap: 8px; align-items: baseline; margin: 14px 0 4px; font-size: 13px; }
@@ -138,6 +154,11 @@
         <button role="tab" id="tabSettings" aria-selected="false" aria-controls="settingsPane">Settings</button>
       </div>
       <span id="usageBrief" title="Tokens used in this conversation, sub-agents included"></span>
+      <span id="contextMeter" hidden>
+        <span class="cbar" aria-hidden="true"><span id="contextFill"></span><span id="contextMark"></span></span>
+        <span id="contextText"></span>
+      </span>
+      <button id="compactNow" disabled title="Summarize the conversation so far, to free context">Compact</button>
     </div>
     <div id="chatView" role="tabpanel" aria-labelledby="tabChat">
       <div id="log" aria-live="polite"></div>
@@ -155,11 +176,30 @@
         <label><input type="checkbox" id="optMentions"> Replace <code>@skill</code> mentions in my messages with the skill's instructions</label>
         <label><input type="checkbox" id="optThinking"> Show the model's thinking in the chat</label>
       </div>
+      <h2>System prompt <span class="hint" id="systemState"></span></h2>
+      <p class="hint">The instructions the model gets before the conversation. A saved change applies from your
+        next message, in the same conversation; sub-agents get it too, with their own instructions added. With
+        Claude, a change makes the next request re-read the conversation without the cache once.</p>
+      <textarea id="optSystem" spellcheck="false" aria-label="System prompt"></textarea>
+      <div class="sysbar">
+        <button id="systemSave" disabled>Save</button>
+        <button id="systemReset" title="Go back to the built-in prompt">Reset to default</button>
+      </div>
+      <h2>Context</h2>
+      <p class="hint">How full the model's context window is, and compaction: the conversation so far is summarized
+        by the same model and the summary takes its place. Files in the VM are not affected.</p>
+      <div class="toggles">
+        <label><input type="checkbox" id="optCompact"> Compact by itself when the context reaches
+          <select id="optCompactAt"></select> of the window</label>
+        <label>Context window <input id="optWindow" type="number" min="1000" step="1000" size="9" placeholder="the model's"> tokens
+          <span class="hint">(leave empty to use what the model reports)</span></label>
+      </div>
+      <dl id="contextStats"></dl>
       <h2>Token usage <span class="hint">this conversation</span> <button id="usageReset" title="Start counting from zero">Reset</button></h2>
       <div id="usageWrap"><table id="usageTable"></table></div>
       <p class="hint">Input counts uncached input tokens only; cached tokens are under Cache read. Output includes
         thinking. Claude doesn't report thinking tokens separately (—); OpenAI-style APIs that do show them.
-        Sub-agents are the Delegate tool's.</p>
+        Sub-agents are the Delegate tool's; Compaction is the requests that wrote summaries.</p>
     </div>
   </section>
   <section>
@@ -227,7 +267,8 @@ import { asText, FileBrowser, formatSize, readEntry } from './js/FileBrowser.js'
 import { LinkError, LinkedFolders } from './js/LinkedFolders.js';
 import { ALL_TOOL_NAMES, createTools, DELEGATE_TOOL } from './js/tools.js';
 import { SKILL_FILE, SkillLibrary, SKILLS_DIR, SKILLS_STORAGE_KEY, SKILLS_VOLUME } from './js/skills.js';
-import { Agent, createDelegate, SYSTEM_PROMPT, TOOL_ARG } from './js/Agent.js';
+import { Agent, createDelegate, subagentPrompt, SYSTEM_PROMPT, TOOL_ARG } from './js/Agent.js';
+import { DEFAULT_CONTEXT_WINDOW } from './js/compaction.js';
 import { CLAUDE_EFFORTS, ClaudeProvider, listClaudeModels } from './js/providers/claude.js';
 import { listOpenAIModels, OPENAI_EFFORTS, OPENAI_PRESETS, OpenAICompatProvider } from './js/providers/openai.js';
 import { hasWebGPU, WebLLMProvider, WEBLLM_MODELS } from './js/providers/webllm.js';
@@ -350,6 +391,7 @@ function addToolCard(call) {
 function uiHooks() {
     let textEl = null;
     let thinkEl = null;
+    let compactingEl = null;   // the "compacting…" note while a summary is written
     const cards = new Map();
     return {
         stepStart() { textEl = null; thinkEl = null; },
@@ -391,7 +433,24 @@ function uiHooks() {
             follow();
             if (!$('filesPane').hidden) files.refresh();   // the call may have changed /workspace
         },
-        usage(u) { addUsage('main', u); },
+        usage(u, kind) { addUsage('main', u, kind); },
+        context() { renderContext(); },
+        compactStart() {
+            textEl = null;
+            compactingEl = addMessage('note', '⟲ Compacting the conversation to free context…');
+        },
+        compacted(c) {
+            compactingEl?.remove();
+            compactingEl = null;
+            compactions.main++;
+            addCompactionCard(c);
+            renderContext();
+        },
+        compactFailed(e) {
+            compactingEl?.remove();
+            compactingEl = null;
+            addMessage('problem', `Could not compact the conversation (${e.message}); carrying on without.`);
+        },
     };
 }
 
@@ -423,8 +482,10 @@ function setModels(models, emptyText) {
     sel.options[0].disabled = modelsListed;
     for (const m of models || []) sel.append(new Option(m.label || m.id, m.id));
     sel.value = '';
+    listedModels = models || [];
     updateControls();
 }
+let listedModels = [];   // as listed, with each one's context window where known
 
 /* The last connection that worked: provider, URL, key and model, kept in this
  * browser's localStorage until "Clear saved". Storage can be unavailable (a
@@ -527,15 +588,25 @@ async function listModels() {
 /* Kept in this browser's localStorage. Without storage the defaults apply and a
  * change lasts until the page reloads. */
 const SETTINGS = 'tinyemu-agent-settings';
-const SETTINGS_DEFAULT = { disabledTools: [], mentions: true, thinking: true, effort: {} };
+const COMPACT_LEVELS = [50, 60, 70, 80, 90, 95];   // % of the window that triggers a compaction
+const SETTINGS_DEFAULT = {
+    disabledTools: [], mentions: true, thinking: true, effort: {},
+    compactAuto: true, compactAt: 80, contextWindow: null,
+    systemPrompt: null,   // null: the built-in SYSTEM_PROMPT
+};
 const settings = (() => {
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(SETTINGS)); } catch { /* defaults */ }
     const s = { ...SETTINGS_DEFAULT, ...(saved && typeof saved === 'object' ? saved : {}) };
     if (!Array.isArray(s.disabledTools)) s.disabledTools = [];
     if (!s.effort || typeof s.effort !== 'object') s.effort = {};
+    if (!COMPACT_LEVELS.includes(s.compactAt)) s.compactAt = SETTINGS_DEFAULT.compactAt;
+    if (!(Number.isInteger(s.contextWindow) && s.contextWindow >= 1000)) s.contextWindow = null;
+    if (typeof s.systemPrompt !== 'string' || !s.systemPrompt.trim()) s.systemPrompt = null;
     return s;
 })();
+/* The system prompt in use: the user's edit, or the built-in one. */
+const currentSystem = () => settings.systemPrompt || SYSTEM_PROMPT;
 function saveSettings() {
     try { localStorage.setItem(SETTINGS, JSON.stringify(settings)); } catch { /* not remembered */ }
 }
@@ -606,6 +677,37 @@ function renderSettings() {
     log.classList.toggle('hide-thinking', !settings.thinking);
 }
 $('optMentions').onchange = () => { settings.mentions = $('optMentions').checked; saveSettings(); };
+
+/* ---- system prompt editor --------------------------------------------------- */
+
+function systemEditorState() {
+    const text = $('optSystem').value;
+    const unsaved = text !== currentSystem();
+    $('systemSave').disabled = !unsaved || !text.trim();
+    $('systemReset').disabled = !settings.systemPrompt && !unsaved;
+    $('systemState').textContent = unsaved ? 'unsaved changes' : settings.systemPrompt ? 'edited' : 'built-in';
+}
+$('optSystem').value = currentSystem();
+$('optSystem').oninput = systemEditorState;
+$('systemSave').onclick = () => {
+    const text = $('optSystem').value;
+    if (!text.trim()) return;
+    // Saving the built-in text back is the same as having no edit.
+    settings.systemPrompt = text === SYSTEM_PROMPT ? null : text;
+    saveSettings();
+    systemEditorState();
+    addMessage('note', agent
+        ? 'Saved the system prompt; it applies from your next message.'
+        : 'Saved the system prompt.');
+};
+$('systemReset').onclick = () => {
+    if (settings.systemPrompt && !confirm('Go back to the built-in system prompt? Your edited prompt will be lost.')) return;
+    settings.systemPrompt = null;
+    saveSettings();
+    $('optSystem').value = SYSTEM_PROMPT;
+    systemEditorState();
+};
+systemEditorState();
 $('optThinking').onchange = () => {
     settings.thinking = $('optThinking').checked;
     log.classList.toggle('hide-thinking', !settings.thinking);
@@ -633,10 +735,11 @@ const USAGE_COLUMNS = [
     ['cacheRead', 'Cache read'], ['output', 'Output'], ['thinking', 'Thinking'],
 ];
 const emptyUsage = () => ({ requests: 0, input: 0, cacheWrite: 0, cacheRead: 0, output: 0, thinking: 0, thinkingKnown: false });
-const usage = { main: emptyUsage(), sub: emptyUsage() };
+const usage = { main: emptyUsage(), sub: emptyUsage(), compaction: emptyUsage() };
 
-function addUsage(who, u) {
-    const t = usage[who];
+/* kind 'compaction' is a summary's own request, whoever's context it was. */
+function addUsage(who, u, kind) {
+    const t = usage[kind === 'compaction' ? 'compaction' : who];
     t.requests++;
     for (const k of ['input', 'cacheWrite', 'cacheRead', 'output']) t[k] += u[k] || 0;
     if (Number.isInteger(u.thinking)) { t.thinking += u.thinking; t.thinkingKnown = true; }
@@ -645,16 +748,17 @@ function addUsage(who, u) {
 function resetUsage() {
     usage.main = emptyUsage();
     usage.sub = emptyUsage();
+    usage.compaction = emptyUsage();
     renderUsage();
 }
 $('usageReset').onclick = resetUsage;
 
 const fmt = (n) => n.toLocaleString();
-const short = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(n));
+const short = (n) => (n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${+(n / 1e3).toFixed(1)}k` : String(n));
 
 function renderUsage() {
     const total = emptyUsage();
-    for (const t of [usage.main, usage.sub]) {
+    for (const t of [usage.main, usage.sub, usage.compaction]) {
         for (const [k] of USAGE_COLUMNS) total[k] += t[k];
         total.thinkingKnown ||= t.thinkingKnown;
     }
@@ -667,7 +771,9 @@ function renderUsage() {
         head.append(th);
     }
     const body = table.createTBody();
-    for (const [label, t, cls] of [['Main agent', usage.main], ['Sub-agents', usage.sub], ['Total', total, 'total']]) {
+    for (const [label, t, cls] of [
+        ['Main agent', usage.main], ['Sub-agents', usage.sub], ['Compaction', usage.compaction], ['Total', total, 'total'],
+    ]) {
         const row = body.insertRow();
         if (cls) row.className = cls;
         row.insertCell().textContent = label;
@@ -681,6 +787,115 @@ function renderUsage() {
         : '';
 }
 renderUsage();
+
+/* ---- context window and compaction ---------------------------------------- */
+
+/* The window: the Settings value, else what the model's listing reported, else a
+ * guess. The source is shown, so a guess can be corrected. */
+function windowOf(p) {
+    if (settings.contextWindow) return { tokens: settings.contextWindow, source: 'set in Settings' };
+    if (p?.contextWindow) return { tokens: p.contextWindow, source: 'reported by the model' };
+    return { tokens: DEFAULT_CONTEXT_WINDOW, source: 'assumed: the model didn\'t say; set it below' };
+}
+/* What every Agent (sub-agents included) reads at each check. */
+const contextOptions = {
+    auto: () => settings.compactAuto,
+    threshold: () => settings.compactAt / 100,
+    limit: (p) => windowOf(p).tokens,
+};
+const compactions = { main: 0, sub: 0 };
+
+function renderContext() {
+    const info = agent?.contextInfo();
+    $('contextMeter').hidden = !info;
+    const stats = $('contextStats');
+    stats.replaceChildren();
+    const row = (term, value) => {
+        const dt = document.createElement('dt');
+        dt.textContent = term;
+        const dd = document.createElement('dd');
+        dd.textContent = value;
+        stats.append(dt, dd);
+    };
+    if (!info) { row('Conversation', 'none yet: connect a model'); return; }
+    const pct = info.limit ? Math.min(100, Math.round((info.used / info.limit) * 100)) : 0;
+    const triggerPct = Math.round((info.trigger / info.limit) * 100);
+    const fill = $('contextFill');
+    fill.style.width = `${pct}%`;
+    fill.className = info.used >= info.trigger ? 'over' : info.used >= info.trigger * 0.85 ? 'near' : '';
+    $('contextMark').style.left = `${triggerPct}%`;
+    $('contextMark').hidden = !settings.compactAuto;
+    const total = compactions.main + compactions.sub;
+    $('contextText').textContent = `${info.estimated ? '~' : ''}${short(info.used)} / ${short(info.limit)}`
+        + (total ? ` · ⟲${total}` : '');
+    $('contextMeter').title = `Context: ${fmt(info.used)} of ${fmt(info.limit)} tokens (${pct}%)`
+        + `${info.estimated ? ', estimated since the last compaction' : ', at the last response'}. `
+        + (settings.compactAuto ? `Compacts by itself at ${fmt(info.trigger)}. ` : 'Automatic compaction is off. ')
+        + `Compactions: ${compactions.main} main, ${compactions.sub} by sub-agents.`;
+
+    const w = windowOf(agent.provider);
+    row('Window', `${fmt(w.tokens)} tokens (${w.source})`);
+    row('In use', `${info.estimated ? '~' : ''}${fmt(info.used)} tokens, ${pct}%`
+        + (info.estimated ? ' (estimate until the next response)' : ' (at the last response)'));
+    row('Compacts at', settings.compactAuto
+        ? `${fmt(info.trigger)} tokens: ${settings.compactAt}% of the window${agent.provider.maxOutput ? ', less room for a reply' : ''}`
+        : 'never by itself (off)');
+    row('Compactions', `${compactions.main} in this conversation, ${compactions.sub} by sub-agents`);
+    const last = info.last;
+    if (last) {
+        const how = { auto: 'automatic', overflow: 'the model reported the context was full', manual: 'by hand' }[last.reason] || last.reason;
+        row('Last', `${new Date(last.at).toLocaleTimeString()}, ${how}: ${fmt(last.before)} → `
+            + (last.measured === null ? `~${fmt(last.after)} (estimate)` : `${fmt(last.measured)}`) + ' tokens');
+    }
+}
+
+function fillCompactSettings() {
+    const sel = $('optCompactAt');
+    for (const n of COMPACT_LEVELS) sel.append(new Option(`${n}%`, String(n)));
+    sel.value = String(settings.compactAt);
+    $('optCompact').checked = settings.compactAuto;
+    $('optWindow').value = settings.contextWindow || '';
+}
+fillCompactSettings();
+$('optCompact').onchange = () => { settings.compactAuto = $('optCompact').checked; saveSettings(); renderContext(); };
+$('optCompactAt').onchange = () => { settings.compactAt = Number($('optCompactAt').value); saveSettings(); renderContext(); };
+$('optWindow').onchange = () => {
+    const n = parseInt($('optWindow').value, 10);
+    settings.contextWindow = Number.isInteger(n) && n >= 1000 ? n : null;
+    $('optWindow').value = settings.contextWindow || '';
+    saveSettings();
+    renderContext();
+};
+
+/* A compaction in the chat: one line, with the summary inside. */
+function addCompactionCard(c, who = 'the conversation') {
+    const how = { auto: 'automatically', overflow: 'after the model reported a full context', manual: 'by hand' }[c.reason] || '';
+    const box = document.createElement('details');
+    box.className = 'compaction';
+    const s = document.createElement('summary');
+    s.textContent = `⟲ Compacted ${who} ${how}: ${fmt(c.before)} → ~${fmt(c.after)} tokens (compaction ${c.count})`;
+    const pre = document.createElement('pre');
+    pre.textContent = c.summary;
+    box.append(s, pre);
+    log.append(box);
+    follow();
+}
+
+$('compactNow').onclick = async () => {
+    if (!agent || running) return;
+    running = new AbortController();
+    updateControls();
+    try {
+        const done = await agent.compact({ signal: running.signal, reason: 'manual' });
+        if (!done) addMessage('note', 'There is nothing to compact yet.');
+        else if (done.aborted) addMessage('note', 'Stopped.');
+    } catch (e) {
+        addMessage('problem', `Could not compact the conversation: ${e.message}`);
+    } finally {
+        running = null;
+        updateControls();
+    }
+};
 
 /* ---- wiring ----------------------------------------------------------- */
 
@@ -701,10 +916,16 @@ const tools = createTools(new Promise((resolve, reject) => { vmReady = { resolve
 /* Sub-agents get the same tools and settings, minus Delegate itself. */
 const delegate = createDelegate({
     tools: tools.without(DELEGATE_TOOL),
-    on: { usage: (u) => addUsage('sub', u) },
+    system: () => subagentPrompt(currentSystem()),
+    context: contextOptions,
+    on: {
+        usage: (u, kind) => addUsage('sub', u, kind),
+        compacted() { compactions.sub++; renderContext(); },
+    },
 });
 let agent = null;
 let running = null;   // AbortController of the turn in progress
+renderContext();
 
 let loading = false;   // a chosen model is being loaded
 function updateControls() {
@@ -715,6 +936,8 @@ function updateControls() {
     // Switching model starts a new conversation, so not in the middle of a turn.
     $('connect').disabled = !!running || loading;
     $('model').disabled = !!running || loading || !modelsListed;
+    // A compaction rewrites the history, so never during a turn.
+    $('compactNow').disabled = !agent || !!running || !agent.provider.transcript?.().length;
 }
 
 /* ?baseURL= points the API client at a local proxy or test server. Loopback only:
@@ -732,16 +955,17 @@ async function chooseModel() {
     const p = currentProvider();
     const model = $('model').value;
     if (!model) return;
-    const common = { model, system: SYSTEM_PROMPT, tools: tools.defs };
+    const common = { model, system: currentSystem(), tools: tools.defs };
     const apiKey = $('apiKey').value.trim();
     loading = true;
     updateControls();
     try {
         const effort = effortFor(p.kind);
+        const contextWindow = listedModels.find((m) => m.id === model)?.contextWindow || null;
         const provider = p.kind === 'claude'
-            ? new ClaudeProvider({ ...common, apiKey, baseURL: localBaseURL(), effort })
+            ? new ClaudeProvider({ ...common, apiKey, baseURL: localBaseURL(), effort, contextWindow })
             : p.kind === 'openai'
-                ? new OpenAICompatProvider({ ...common, apiKey, baseURL: baseURLOf(p), effort })
+                ? new OpenAICompatProvider({ ...common, apiKey, baseURL: baseURLOf(p), effort, contextWindow })
                 : new WebLLMProvider({ ...common, onProgress: (t) => { $('connect').textContent = t.slice(0, 40); } });
         provider.kind = p.kind;   // which thinking scale applies to it
         await provider.load();
@@ -759,8 +983,11 @@ async function chooseModel() {
 }
 
 function useProvider(provider, label) {
-    agent = new Agent({ provider, tools, on: uiHooks() });
+    agent = new Agent({ provider, tools, on: uiHooks(), context: contextOptions, system: currentSystem });
     resetUsage();
+    compactions.main = 0;
+    compactions.sub = 0;
+    renderContext();
     addMessage('note', `Connected to ${label}. This starts a new conversation.`);
     updateControls();
     $('prompt').focus();

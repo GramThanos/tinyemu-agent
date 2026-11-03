@@ -9,14 +9,19 @@
 const SDK_URL = 'https://esm.sh/@anthropic-ai/sdk@1.3.0';
 const MAX_JSON_RETRIES = 2;
 
-/** The models this key can use, newest first, as [{ id, label }]. */
+/** The models this key can use, newest first, as [{ id, label, contextWindow }].
+ * The context window is the API's max_input_tokens, where it reports one. */
 export async function listClaudeModels({ apiKey, baseURL, signal }) {
     const { default: Anthropic } = await import(SDK_URL);
     const client = new Anthropic({ apiKey, baseURL: baseURL || undefined, dangerouslyAllowBrowser: true });
     const models = [];
     try {
         for await (const m of client.models.list({ limit: 100 }, { signal })) {
-            models.push({ id: m.id, label: m.display_name ? `${m.display_name} (${m.id})` : m.id });
+            models.push({
+                id: m.id,
+                label: m.display_name ? `${m.display_name} (${m.id})` : m.id,
+                contextWindow: Number.isInteger(m.max_input_tokens) ? m.max_input_tokens : null,
+            });
         }
     } catch (e) {
         // The SDK's message is the raw response body; keep just the API's words.
@@ -35,18 +40,25 @@ const fallbackParams = (model) => (model.startsWith('claude-haiku')
  * '' leaves it to the model's own default. */
 export const CLAUDE_EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
 
+const MAX_TOKENS = 64000;
+
 export class ClaudeProvider {
-    constructor({ apiKey, model, system, tools, baseURL, effort = 'high' }) {
+    constructor({ apiKey, model, system, tools, baseURL, effort = 'high', contextWindow = null }) {
         this.apiKey = apiKey;
         this.baseURL = baseURL;
         this.model = model;
         this.system = system;
         this.effort = effort;
+        this.contextWindow = contextWindow;   // tokens, or null if the API didn't say
+        this.maxOutput = MAX_TOKENS;
         this.setTools(tools);
         this.messages = [];
         this.Anthropic = null;
         this.client = null;
     }
+
+    /** Applies from the next request; a change misses the prompt cache once. */
+    setSystem(system) { this.system = system; }
 
     setTools(tools) {
         // Input is streamed unbuffered, which is why tools.js validates every call.
@@ -63,18 +75,40 @@ export class ClaudeProvider {
         });
     }
 
-    /** A new conversation with the same model and client, for a sub-agent. */
     /** Applies from the next request. A change mid-conversation costs a cache miss. */
     setEffort(effort) { this.effort = effort; }
 
+    /** A new conversation with the same model and client, for a sub-agent or a compaction. */
     fork({ system, tools }) {
         const p = new ClaudeProvider({
             apiKey: this.apiKey, model: this.model, system, tools, baseURL: this.baseURL, effort: this.effort,
+            contextWindow: this.contextWindow,
         });
         p.Anthropic = this.Anthropic;
         p.client = this.client;
         return p;
     }
+
+    /** The history as plain entries, for a compaction summary. Thinking is left out. */
+    transcript() {
+        const out = [];
+        for (const m of this.messages) {
+            if (typeof m.content === 'string') { out.push({ role: m.role, text: m.content }); continue; }
+            for (const b of m.content) {
+                if (b.type === 'text' && b.text) out.push({ role: m.role, text: b.text });
+                else if (b.type === 'tool_use') out.push({ role: 'call', text: `${b.name} ${JSON.stringify(b.input)}` });
+                else if (b.type === 'tool_result') {
+                    const text = typeof b.content === 'string' ? b.content : JSON.stringify(b.content);
+                    out.push({ role: 'result', text, isError: !!b.is_error });
+                }
+            }
+        }
+        return out;
+    }
+
+    /** Replace the history with one user message: a new conversation, so no
+     * earlier thinking block is edited (the API checks that). */
+    resetHistory(text) { this.messages = [{ role: 'user', content: text }]; }
 
     addUser(text) { this.messages.push({ role: 'user', content: text }); }
 
@@ -94,9 +128,9 @@ export class ClaudeProvider {
         for (let jsonRetries = 0; ;) {
             const stream = this.client.beta.messages.stream({
                 model: this.model,
-                max_tokens: 64000,
+                max_tokens: MAX_TOKENS,
                 system: this.system,
-                tools: this.tools,
+                ...(this.tools.length ? { tools: this.tools } : {}),
                 messages: this.messages,
                 thinking: { type: 'adaptive', display: 'summarized' },
                 ...(this.effort ? { output_config: { effort: this.effort } } : {}),

@@ -9,6 +9,7 @@ const OPEN = '<tool_call>';
 const CLOSE = '</tool_call>';
 
 export function toolPrompt(system, tools) {
+    if (!tools.length) return system;   // a compaction request: plain text only
     const specs = tools.map((t) => JSON.stringify({
         name: t.name, description: t.description, parameters: t.input_schema,
     })).join('\n');

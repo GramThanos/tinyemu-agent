@@ -11,12 +11,14 @@ const WEBLLM_URL = 'https://esm.run/@mlc-ai/web-llm@0.2.87';
 const CONTEXT_WINDOW = 8192;
 const MAX_RESULT_CHARS = 6000;   // small context: one tool result must not fill it
 
+const MAX_TOKENS = 2048;
+
 export const WEBLLM_MODELS = [
     { id: 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC', label: 'Hermes 3 3B (2.3 GB VRAM)' },
     { id: 'Qwen3-4B-q4f16_1-MLC', label: 'Qwen3 4B (3.4 GB VRAM)' },
     { id: 'Hermes-3-Llama-3.1-8B-q4f16_1-MLC', label: 'Hermes 3 8B (4.9 GB VRAM)' },
     { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', label: 'Qwen2.5 1.5B (1.6 GB VRAM, weak with tools)' },
-];
+].map((m) => ({ ...m, contextWindow: CONTEXT_WINDOW }));
 
 /* navigator.gpu can exist with no adapter behind it, e.g. on a blocklisted GPU. */
 export async function hasWebGPU() {
@@ -28,13 +30,37 @@ export class WebLLMProvider {
         this.model = model;
         this.onProgress = onProgress;
         this.system = system;
+        this.toolDefs = tools;   // for rewriting the prompt when the system part changes
         this.messages = [{ role: 'system', content: toolPrompt(system, tools) }];
         this.engine = null;
         this._seq = 0;
+        // The engine is loaded with this window, and a reply needs room in it too.
+        this.contextWindow = CONTEXT_WINDOW;
+        this.maxOutput = MAX_TOKENS;
     }
 
+    /** The history as plain entries, for a compaction summary. Tool results come
+     * back as user messages of <tool_response> blocks. */
+    transcript() {
+        return this.messages.slice(1).map((m) => (m.role === 'user' && m.content.startsWith('<tool_response')
+            ? { role: 'result', text: m.content }
+            : { role: m.role, text: m.content }));
+    }
+
+    /** Keep the system prompt; replace the rest with one user message. */
+    resetHistory(text) { this.messages = [this.messages[0], { role: 'user', content: text }]; }
+
     /* The tools are described in the system prompt, so it is rewritten. */
-    setTools(tools) { this.messages[0] = { role: 'system', content: toolPrompt(this.system, tools) }; }
+    setTools(tools) {
+        this.toolDefs = tools;
+        this.messages[0] = { role: 'system', content: toolPrompt(this.system, tools) };
+    }
+
+    /* The tools are described in the same prompt, so both go in again. */
+    setSystem(system) {
+        this.system = system;
+        this.messages[0] = { role: 'system', content: toolPrompt(system, this.toolDefs) };
+    }
 
     async load() {
         if (!(await hasWebGPU())) throw new Error('No usable WebGPU adapter here, which in-browser models need.');
@@ -84,7 +110,7 @@ export class WebLLMProvider {
             stream: true,
             stream_options: { include_usage: true },
             temperature: 0.2,
-            max_tokens: 2048,
+            max_tokens: MAX_TOKENS,
         });
 
         const filter = new VisibleTextFilter(onText);
