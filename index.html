@@ -23,9 +23,11 @@
   main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   section { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
   #chatPane { border-right: 1px solid #2a2e37; }
-  #chatBar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid #2a2e37; background: #1c1f26; color: #8a93a2; font-size: 12px; }
+  /* Wraps rather than squeezing: the token summary and the context meter each keep their full text. */
+  #chatBar { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; justify-content: flex-end; padding: 6px 12px; border-bottom: 1px solid #2a2e37; background: #1c1f26; color: #8a93a2; font-size: 12px; }
+  #chatBar [role=tablist] { margin-right: auto; }
   #chatBar button { padding: 2px 8px; font-size: 12px; }
-  #usageBrief { flex: 1; min-width: 0; text-align: right; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 11px ui-monospace, monospace; }
+  #usageBrief { white-space: nowrap; font: 11px ui-monospace, monospace; }
   #contextMeter { display: flex; gap: 6px; align-items: center; flex-shrink: 0; font: 11px ui-monospace, monospace; }
   #contextMeter[hidden] { display: none; }
   .cbar { position: relative; width: 56px; height: 6px; border-radius: 3px; background: #2a2e37; overflow: hidden; }
@@ -42,23 +44,53 @@
   #contextStats dd { margin: 0; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
   details.compaction { color: #8a93a2; font-size: 12px; }
   details.compaction summary { font-family: system-ui, sans-serif; }
-  #chatView, #settingsPane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-  #settingsPane { overflow: auto; padding: 4px 14px 14px; }
-  #settingsPane h2 { display: flex; gap: 8px; align-items: baseline; margin: 14px 0 4px; font-size: 13px; }
+  #chatView, #settingsPane, #logPane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #settingsPane, #vmPane { overflow: auto; padding: 4px 14px 14px; }
+  #settingsPane h2, #vmPane h2 { display: flex; gap: 8px; align-items: baseline; margin: 14px 0 4px; font-size: 13px; }
   #settingsPane h2 button { margin-left: auto; padding: 2px 8px; font-size: 12px; }
-  #settingsPane .hint { margin: 0 0 8px; color: #8a93a2; font-size: 12px; font-weight: 400; }
+  #settingsPane .hint, #vmPane .hint { margin: 0 0 8px; color: #8a93a2; font-size: 12px; font-weight: 400; }
   #settingsPane code { font: 12px ui-monospace, monospace; color: #e6e6e6; }
   #toolToggles, .toggles { display: flex; flex-direction: column; gap: 6px; }
-  #settingsPane label { align-items: flex-start; color: #e6e6e6; }
-  #settingsPane label input { margin: 2px 4px 0 0; accent-color: #7fb4ff; }
+  #settingsPane label, #vmPane label { align-items: flex-start; flex-wrap: wrap; color: #e6e6e6; }
+  #settingsPane label input, #vmPane label input { margin: 2px 4px 0 0; accent-color: #7fb4ff; }
+  #settingsPane label input[type=number] { margin: 0 2px; padding: 1px 4px; width: 6em; }
   #settingsPane label .tname { font: 600 12px ui-monospace, monospace; color: #7fb4ff; min-width: 64px; }
   #settingsPane label .tdesc { color: #8a93a2; }
-  #usageWrap { overflow-x: auto; }
-  #usageTable { border-collapse: collapse; font: 12px ui-monospace, monospace; }
-  #usageTable th, #usageTable td { padding: 4px 10px 4px 0; text-align: right; white-space: nowrap; }
-  #usageTable th:first-child, #usageTable td:first-child { text-align: left; }
-  #usageTable thead th { color: #8a93a2; font-weight: 400; border-bottom: 1px solid #2a2e37; }
-  #usageTable tr.total td { border-top: 1px solid #2a2e37; font-weight: 600; }
+  /* A tool's own settings, under its toggle. */
+  .topts { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: -2px 0 2px 92px; color: #8a93a2; font-size: 12px; }
+  .topts label { color: #8a93a2 !important; align-items: center !important; }
+  #usageWrap, #toolStatsWrap { overflow-x: auto; }
+  table.stats, #usageTable { border-collapse: collapse; font: 12px ui-monospace, monospace; }
+  table.stats th, table.stats td, #usageTable th, #usageTable td { padding: 4px 10px 4px 0; text-align: right; white-space: nowrap; }
+  table.stats th:first-child, table.stats td:first-child, #usageTable th:first-child, #usageTable td:first-child { text-align: left; }
+  table.stats thead th, #usageTable thead th { color: #8a93a2; font-weight: 400; border-bottom: 1px solid #2a2e37; }
+  table.stats tr.total td, #usageTable tr.total td { border-top: 1px solid #2a2e37; font-weight: 600; }
+  #vmStats { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; margin: 0 0 8px; font-size: 12px; }
+  #vmStats dt { color: #8a93a2; }
+  #vmStats dd { margin: 0; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+  #vmPane select { max-width: 100%; }
+  /* The log of exchanges */
+  #logBar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid #2a2e37; font-size: 12px; color: #8a93a2; }
+  #logBar button { padding: 2px 8px; font-size: 12px; }
+  #logBar select { padding: 2px 6px; font-size: 12px; }
+  #logCount { flex: 1; min-width: 0; }
+  #logList { flex: 1; min-height: 0; overflow: auto; padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; }
+  #logList details summary { display: flex; gap: 8px; white-space: nowrap; }
+  #logList .lt { color: #8a93a2; }
+  #logList .la { color: #c99a2e; }
+  #logList .ly { color: #7fb4ff; font-weight: 600; }
+  #logList .lx { overflow: hidden; text-overflow: ellipsis; color: #c4cad4; }
+  #logList .imported { border-style: dashed; }
+  /* Tool card stats: time, and the result's size */
+  summary .tstat { float: right; margin-left: 8px; color: #8a93a2; font-size: 11px; }
+  summary .tshell { color: #c99a2e; }
+  /* Messages waiting for the agent's next step */
+  #queued { display: contents; }
+  .msg.user.queued { opacity: .75; border: 1px dashed #7fb4ff; background: #1d2633; }
+  .msg.user .qnote { display: flex; gap: 8px; align-items: center; margin-top: 4px; color: #8a93a2; font: 11px system-ui, sans-serif; white-space: normal; }
+  .msg.user .qnote button { padding: 0 6px; font-size: 11px; }
+  .msg.problem .actions { display: flex; gap: 6px; margin-top: 4px; }
+  .msg.problem .actions button { padding: 2px 8px; font-size: 12px; }
   #log.hide-thinking details.thinking { display: none; }
   #log { flex: 1; overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
   .msg { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -85,7 +117,9 @@
   [role=tablist] { display: flex; gap: 2px; margin-right: 6px; }
   [role=tab] { border-radius: 5px 5px 0 0; }
   [role=tab][aria-selected=true] { background: #2c313b; color: #fff; border-color: #7fb4ff; }
-  #consolePane, #filesPane, #skillsPane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #consolePane, #filesPane, #skillsPane, #vmPane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #vmPane { display: block; }
+  .file .spinner { float: none; margin: 0; width: 11px; height: 11px; }
   #skillsBar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid #2a2e37; font-size: 12px; color: #8a93a2; }
   #skillsHint { flex: 1; min-width: 0; }
   #skillsHint code { font: 12px ui-monospace, monospace; color: #e6e6e6; }
@@ -152,6 +186,7 @@
       <div role="tablist" aria-label="Chat view">
         <button role="tab" id="tabChat" aria-selected="true" aria-controls="chatView">Chat</button>
         <button role="tab" id="tabSettings" aria-selected="false" aria-controls="settingsPane">Settings</button>
+        <button role="tab" id="tabLog" aria-selected="false" aria-controls="logPane">Log</button>
       </div>
       <span id="usageBrief" title="Tokens used in this conversation, sub-agents included"></span>
       <span id="contextMeter" hidden>
@@ -161,7 +196,7 @@
       <button id="compactNow" disabled title="Summarize the conversation so far, to free context">Compact</button>
     </div>
     <div id="chatView" role="tabpanel" aria-labelledby="tabChat">
-      <div id="log" aria-live="polite"></div>
+      <div id="log" aria-live="polite"><div id="queued"></div></div>
       <form id="chat">
         <textarea id="prompt" placeholder="Ask the agent to do something in the VM. Enter sends, Shift+Enter adds a line." disabled></textarea>
         <button id="send" disabled>Send</button>
@@ -175,6 +210,13 @@
       <div class="toggles">
         <label><input type="checkbox" id="optMentions"> Replace <code>@skill</code> mentions in my messages with the skill's instructions</label>
         <label><input type="checkbox" id="optThinking"> Show the model's thinking in the chat</label>
+      </div>
+      <h2>Agent</h2>
+      <div class="toggles">
+        <label>At most <input id="optMaxSteps" type="number" min="1" max="10000" step="1" size="6"> steps per message
+          <span class="hint">(a step is one reply from the model; each reply can call several tools)</span></label>
+        <label>Ask again <input id="optEmptyRetries" type="number" min="0" max="10" step="1" size="3"> times when the model
+          returns an empty response, before stopping</label>
       </div>
       <h2>System prompt <span class="hint" id="systemState"></span></h2>
       <p class="hint">The instructions the model gets before the conversation. A saved change applies from your
@@ -200,6 +242,19 @@
       <p class="hint">Input counts uncached input tokens only; cached tokens are under Cache read. Output includes
         thinking. Claude doesn't report thinking tokens separately (—); OpenAI-style APIs that do show them.
         Sub-agents are the Delegate tool's; Compaction is the requests that wrote summaries.</p>
+      <h2>Tool calls <span class="hint">this conversation, sub-agents included</span> <button id="toolStatsReset" title="Start counting from zero">Reset</button></h2>
+      <div id="toolStatsWrap"><table id="toolStatsTable" class="stats"></table></div>
+    </div>
+    <div id="logPane" role="tabpanel" aria-labelledby="tabLog" hidden>
+      <div id="logBar">
+        <select id="logFilter" aria-label="Show the exchanges of"></select>
+        <span id="logCount"></span>
+        <button id="logExport" title="Save every exchange of this conversation, and the conversation itself, as a JSON file">Export</button>
+        <button id="logImport" title="Open an exported log; it can also restore that conversation">Import</button>
+        <button id="logClear" title="Empty the log (the conversation goes on)">Clear</button>
+        <input id="logPick" type="file" accept=".json,application/json" hidden>
+      </div>
+      <div id="logList" role="list"></div>
     </div>
   </section>
   <section>
@@ -208,9 +263,8 @@
         <button role="tab" id="tabConsole" aria-selected="true" aria-controls="consolePane">Console</button>
         <button role="tab" id="tabFiles" aria-selected="false" aria-controls="filesPane">Files</button>
         <button role="tab" id="tabSkills" aria-selected="false" aria-controls="skillsPane">Skills</button>
+        <button role="tab" id="tabVM" aria-selected="false" aria-controls="vmPane">VM</button>
       </div>
-      <button id="saveState" disabled title="Save the running VM so that reloading the page resumes it">Save state</button>
-      <button id="freshBoot" title="Forget the saved state and boot the VM from scratch">Fresh boot</button>
       <span id="snapInfo"></span>
     </div>
     <div id="consolePane" role="tabpanel" aria-labelledby="tabConsole">
@@ -227,6 +281,7 @@
         <button id="filesRefresh" title="List the folder again">Refresh</button>
         <button id="filesUpload" title="Copy files from this computer into the folder (or drop files and folders here)">Upload</button>
         <input id="filesPick" type="file" multiple hidden>
+        <input id="filesLinkPick" type="file" webkitdirectory multiple hidden>
       </div>
       <div id="filesList" role="list"></div>
       <div id="filePreview" hidden>
@@ -257,6 +312,26 @@
         </div>
       </div>
     </div>
+    <div id="vmPane" role="tabpanel" aria-labelledby="tabVM" hidden>
+      <h2>Machine</h2>
+      <p class="hint">Which system the VM runs: its disk (root filesystem) and processor. A change reloads the page to
+        start the VM again: the workspace and the skills stay, the chat starts over (export it from the Log tab first to
+        restore it after). Each machine keeps its own saved state.</p>
+      <div class="toggles">
+        <label>System <select id="vmConfig"></select></label>
+        <label>Memory <select id="vmMemory"></select></label>
+        <p class="hint" id="vmConfigNote"></p>
+        <div class="sysbar"><button id="vmApply" disabled>Restart with these</button></div>
+      </div>
+      <h2>Saved state</h2>
+      <p class="hint">A saved state is the whole running VM. Reloading the page resumes it in seconds instead of booting
+        again. One is saved by itself after each cold boot.</p>
+      <dl id="vmStats"></dl>
+      <div class="sysbar">
+        <button id="saveState" disabled title="Save the running VM so that reloading the page resumes it">Save state</button>
+        <button id="freshBoot" title="Forget the saved state and boot the VM from scratch">Fresh boot</button>
+      </div>
+    </div>
   </section>
 </main>
 
@@ -265,9 +340,11 @@ import { SnapshotStore, snapshotFingerprint, VMManager } from './engine/vm/index
 import { GuestBridge, VOLUME, WORKSPACE, WORKSPACE_VOLUME } from './js/GuestBridge.js';
 import { asText, FileBrowser, formatSize, readEntry } from './js/FileBrowser.js';
 import { LinkError, LinkedFolders } from './js/LinkedFolders.js';
-import { ALL_TOOL_NAMES, createTools, DELEGATE_TOOL } from './js/tools.js';
+import { ALL_TOOL_NAMES, BASH_DEFAULT_MS, BASH_MAX_MS, createTools, DELEGATE_TOOL } from './js/tools.js';
 import { SKILL_FILE, SkillLibrary, SKILLS_DIR, SKILLS_STORAGE_KEY, SKILLS_VOLUME } from './js/skills.js';
-import { Agent, createDelegate, subagentPrompt, SYSTEM_PROMPT, TOOL_ARG } from './js/Agent.js';
+import {
+    Agent, createDelegate, EMPTY_RETRIES, MAX_STEPS, SUBAGENT_MAX_STEPS, subagentPrompt, SYSTEM_PROMPT, TOOL_ARG,
+} from './js/Agent.js';
 import { DEFAULT_CONTEXT_WINDOW } from './js/compaction.js';
 import { CLAUDE_EFFORTS, ClaudeProvider, listClaudeModels } from './js/providers/claude.js';
 import { listOpenAIModels, OPENAI_EFFORTS, OPENAI_PRESETS, OpenAICompatProvider } from './js/providers/openai.js';
@@ -342,6 +419,9 @@ function flushConsole() {
 /* ---- chat log. Guest and model text only ever go in as textContent. --- */
 
 const log = $('log');
+/* Messages queued during a turn stay at the bottom, below everything the turn adds. */
+const queuedBox = $('queued');
+const logAppend = (el) => log.insertBefore(el, queuedBox);
 function follow() {
     if (log.scrollTop + log.clientHeight >= log.scrollHeight - 80) log.scrollTop = log.scrollHeight;
 }
@@ -349,10 +429,28 @@ function addMessage(kind, text = '') {
     const el = document.createElement('div');
     el.className = `msg ${kind}`;
     el.textContent = text;
-    log.append(el);
+    logAppend(el);
     log.scrollTop = log.scrollHeight;
     return el;
 }
+
+/* A problem with buttons under it: [label, onclick] pairs. Each runs once. */
+function addProblem(text, actions = []) {
+    const el = addMessage('problem', text);
+    if (!actions.length) return el;
+    const bar = document.createElement('div');
+    bar.className = 'actions';
+    for (const [label, fn] of actions) {
+        const b = document.createElement('button');
+        b.textContent = label;
+        b.onclick = () => { bar.remove(); fn(); };
+        bar.append(b);
+    }
+    el.append(bar);
+    return el;
+}
+
+const seconds = (ms) => (ms < 1000 ? `${ms} ms` : ms < 60000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60000)} min ${Math.round((ms % 60000) / 1000)} s`);
 
 
 /* Tool cards start collapsed. Opening or closing one by hand makes that the way
@@ -372,8 +470,18 @@ function addToolCard(call) {
     const spinner = document.createElement('span');
     spinner.className = 'spinner';
     spinner.title = 'running';
-    // First, so the float sits at the right of the line, not below the text.
-    summary.append(spinner, name, ` ${call.input?.[TOOL_ARG[call.name]] ?? ''}`);
+    // How long it has run, then the result's size.
+    const stat = document.createElement('span');
+    stat.className = 'tstat';
+    // First, so the floats sit at the right of the line, not below the text.
+    summary.append(spinner, stat, name);
+    if (call.name === 'Bash' && call.input?.shell) {
+        const sh = document.createElement('span');
+        sh.className = 'tshell';
+        sh.textContent = ` [${call.input.shell}]`;
+        summary.append(sh);
+    }
+    summary.append(` ${call.input?.[TOOL_ARG[call.name]] ?? ''}`);
     const input = document.createElement('pre');
     input.className = 'input';
     input.textContent = JSON.stringify(call.input, null, 2);
@@ -383,9 +491,18 @@ function addToolCard(call) {
     // A click on the summary (or Enter/Space on it) toggles the card after the
     // handlers run; `toggle` events would also fire for the line above.
     summary.addEventListener('click', () => setTimeout(() => cardsOpen.set(card.open)));
-    log.append(card);
+    logAppend(card);
     log.scrollTop = log.scrollHeight;
-    return { card, output, spinner };
+    const started = Date.now();
+    const clock = setInterval(() => { stat.textContent = seconds(Math.round((Date.now() - started) / 1000) * 1000); }, 1000);
+    return { card, output, spinner, stat, clock };
+}
+
+/* A finished card's stats line: time, lines and size of what came back. */
+function toolStatText(result, ms) {
+    const lines = result.content ? result.content.split('\n').length : 0;
+    const bytes = new TextEncoder().encode(result.content || '').length;
+    return `${seconds(ms)} · ${lines} line${lines === 1 ? '' : 's'} · ${formatSize(bytes)}`;
 }
 
 function uiHooks() {
@@ -408,7 +525,7 @@ function uiHooks() {
                 s.textContent = 'Thinking';
                 thinkEl = document.createElement('pre');
                 box.append(s, thinkEl);
-                log.append(box);
+                logAppend(box);
                 follow();
             }
             thinkEl.append(t);
@@ -420,7 +537,7 @@ function uiHooks() {
             c.output.scrollTop = c.output.scrollHeight;
             follow();
         },
-        toolEnd(call, result) {
+        toolEnd(call, result, stats = {}) {
             const c = cards.get(call.id);
             // A sub-agent's progress stays above its report; other output is replaced.
             if (call.name === DELEGATE_TOOL && c.output.textContent) {
@@ -430,9 +547,17 @@ function uiHooks() {
             }
             c.card.classList.toggle('failed', result.isError);
             c.spinner.remove();
+            clearInterval(c.clock);
+            if (Number.isFinite(stats.ms)) {
+                c.stat.textContent = toolStatText(result, stats.ms);
+                c.stat.title = `Ran for ${stats.ms.toLocaleString()} ms${result.isError ? ', and failed' : ''}`;
+                countTool(call.name, stats.ms, result.isError);
+            }
             follow();
             if (!$('filesPane').hidden) files.refresh();   // the call may have changed /workspace
         },
+        retrying(why) { addMessage('note', `↻ ${why}`); },
+        injected(item) { queued.get(item.id)?.deliver(); },
         usage(u, kind) { addUsage('main', u, kind); },
         context() { renderContext(); },
         compactStart() {
@@ -589,11 +714,21 @@ async function listModels() {
  * change lasts until the page reloads. */
 const SETTINGS = 'tinyemu-agent-settings';
 const COMPACT_LEVELS = [50, 60, 70, 80, 90, 95];   // % of the window that triggers a compaction
+/* Number settings: [default, min, max]. */
+const LIMITS = {
+    maxSteps: [MAX_STEPS, 1, 10000],             // model replies per message
+    emptyRetries: [EMPTY_RETRIES, 0, 10],        // asking again after an empty reply
+    bashTimeoutMin: [BASH_DEFAULT_MS / 60000, 1, BASH_MAX_MS / 60000],   // Bash's default timeout
+    subMaxSteps: [SUBAGENT_MAX_STEPS, 1, 10000], // a sub-agent's replies
+    subMaxConcurrent: [4, 0, 32],                // sub-agents at once; 0: no limit
+};
 const SETTINGS_DEFAULT = {
     disabledTools: [], mentions: true, thinking: true, effort: {},
     compactAuto: true, compactAt: 80, contextWindow: null,
     systemPrompt: null,   // null: the built-in SYSTEM_PROMPT
+    ...Object.fromEntries(Object.entries(LIMITS).map(([k, [d]]) => [k, d])),
 };
+const inLimits = (key, n) => Number.isInteger(n) && n >= LIMITS[key][1] && n <= LIMITS[key][2];
 const settings = (() => {
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(SETTINGS)); } catch { /* defaults */ }
@@ -603,8 +738,25 @@ const settings = (() => {
     if (!COMPACT_LEVELS.includes(s.compactAt)) s.compactAt = SETTINGS_DEFAULT.compactAt;
     if (!(Number.isInteger(s.contextWindow) && s.contextWindow >= 1000)) s.contextWindow = null;
     if (typeof s.systemPrompt !== 'string' || !s.systemPrompt.trim()) s.systemPrompt = null;
+    for (const key of Object.keys(LIMITS)) if (!inLimits(key, s[key])) s[key] = SETTINGS_DEFAULT[key];
     return s;
 })();
+
+/* A number setting's input: shows the value, keeps it in its limits, saves it. */
+function numberSetting(input, key, onChange) {
+    const [, min, max] = LIMITS[key];
+    input.min = String(min);
+    input.max = String(max);
+    input.value = String(settings[key]);
+    input.onchange = () => {
+        const n = parseInt(input.value, 10);
+        settings[key] = Number.isInteger(n) ? Math.min(max, Math.max(min, n)) : SETTINGS_DEFAULT[key];
+        input.value = String(settings[key]);
+        saveSettings();
+        onChange?.();
+    };
+    return input;
+}
 /* The system prompt in use: the user's edit, or the built-in one. */
 const currentSystem = () => settings.systemPrompt || SYSTEM_PROMPT;
 function saveSettings() {
@@ -649,6 +801,14 @@ const TOOL_HINTS = {
     skill: 'load one of your skills (offered while you have any)',
     Delegate: 'hand a task to a sub-agent with the same model and tools',
 };
+/* A tool's own number settings, shown under its toggle: [text before, key, text after]. */
+const TOOL_OPTIONS = {
+    Bash: [['default timeout', 'bashTimeoutMin', 'minutes (the model can ask for another, up to 120)']],
+    Delegate: [
+        ['at most', 'subMaxConcurrent', 'sub-agents at once (0: no limit; more wait their turn)'],
+        ['at most', 'subMaxSteps', 'steps each'],
+    ],
+};
 
 function renderSettings() {
     const box = $('toolToggles');
@@ -671,7 +831,24 @@ function renderSettings() {
         tdesc.textContent = TOOL_HINTS[name] || '';
         label.append(box2, tname, tdesc);
         box.append(label);
+        const opts = TOOL_OPTIONS[name];
+        if (opts) {
+            const row = document.createElement('div');
+            row.className = 'topts';
+            for (const [before, key, after] of opts) {
+                const l = document.createElement('label');
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.step = '1';
+                numberSetting(input, key);
+                l.append(`${before} `, input, ` ${after}`);
+                row.append(l);
+            }
+            box.append(row);
+        }
     }
+    numberSetting($('optMaxSteps'), 'maxSteps');
+    numberSetting($('optEmptyRetries'), 'emptyRetries');
     $('optMentions').checked = settings.mentions;
     $('optThinking').checked = settings.thinking;
     log.classList.toggle('hide-thinking', !settings.thinking);
@@ -715,16 +892,209 @@ $('optThinking').onchange = () => {
 };
 renderSettings();
 
+const CHAT_TABS = { chat: ['tabChat', 'chatView'], settings: ['tabSettings', 'settingsPane'], log: ['tabLog', 'logPane'] };
 function showChatTab(tab) {
-    const onSettings = tab === 'settings';
-    $('tabChat').setAttribute('aria-selected', String(!onSettings));
-    $('tabSettings').setAttribute('aria-selected', String(onSettings));
-    $('chatView').hidden = onSettings;
-    $('settingsPane').hidden = !onSettings;
-    if (!onSettings) $('prompt').focus();
+    for (const [name, [tabId, paneId]] of Object.entries(CHAT_TABS)) {
+        $(tabId).setAttribute('aria-selected', String(name === tab));
+        $(paneId).hidden = name !== tab;
+    }
+    if (tab === 'chat') $('prompt').focus();
+    if (tab === 'log') renderLog();
 }
 $('tabChat').onclick = () => showChatTab('chat');
 $('tabSettings').onclick = () => showChatTab('settings');
+$('tabLog').onclick = () => showChatTab('log');
+
+/* ---- tool call stats ------------------------------------------------------- */
+
+/* Per tool: calls, failures, and time, the main agent's and sub-agents' together. */
+let toolStats = {};
+function countTool(name, ms, failed) {
+    const t = toolStats[name] ||= { calls: 0, failed: 0, total: 0, longest: 0 };
+    t.calls++;
+    if (failed) t.failed++;
+    t.total += ms;
+    t.longest = Math.max(t.longest, ms);
+    renderToolStats();
+}
+function renderToolStats() {
+    const table = $('toolStatsTable');
+    table.replaceChildren();
+    const head = table.createTHead().insertRow();
+    for (const label of ['', 'Calls', 'Failed', 'Total time', 'Average', 'Longest']) {
+        const th = document.createElement('th');
+        th.textContent = label;
+        head.append(th);
+    }
+    const body = table.createTBody();
+    const names = Object.keys(toolStats).sort();
+    if (!names.length) {
+        const cell = body.insertRow().insertCell();
+        cell.colSpan = 6;
+        cell.textContent = 'No tool calls yet.';
+        return;
+    }
+    const total = { calls: 0, failed: 0, total: 0, longest: 0 };
+    for (const name of names) {
+        const t = toolStats[name];
+        total.calls += t.calls; total.failed += t.failed; total.total += t.total; total.longest = Math.max(total.longest, t.longest);
+    }
+    for (const [label, t, cls] of [...names.map((n) => [n, toolStats[n]]), ['Total', total, 'total']]) {
+        const row = body.insertRow();
+        if (cls) row.className = cls;
+        for (const v of [label, fmt(t.calls), fmt(t.failed), seconds(t.total), seconds(Math.round(t.total / t.calls)), seconds(t.longest)]) {
+            row.insertCell().textContent = v;
+        }
+    }
+}
+$('toolStatsReset').onclick = () => { toolStats = {}; renderToolStats(); };
+
+/* ---- the log: every exchange, as JSON ---------------------------------------- */
+
+/* What the agents said and did, the sub-agents' included: their messages, each
+ * reply with its tool calls and usage, each tool result with its time. Kept for
+ * this page's life, shown in the Log tab, and exported as one JSON file. Entries
+ * hold model and guest text, so the page shows them as text only. */
+const LOG_FORMAT = 'tinyemu-agent-log';
+let exchanges = [];
+let logImported = false;   // the tab shows a file, not this conversation
+let logShown = 0;          // entries in the list
+function logExchange(entry) {
+    const e = { t: new Date().toISOString(), ...entry };
+    if (logImported) { logImported = false; exchanges = []; logShown = 0; $('logList').replaceChildren(); }
+    exchanges.push(e);
+    if (!$('logPane').hidden) renderLog();
+    else updateLogBar();
+}
+
+const LOG_PREVIEW = {
+    start: (e) => (e.agent === 'main' ? `${e.model || ''}` : `${e.description || ''}`),
+    user: (e) => (e.retry ? '(asked again)' : `${e.injected ? '(sent while working) ' : ''}${e.text}`),
+    response: (e) => `${e.stop}${e.toolCalls?.length ? ` · ${e.toolCalls.map((c) => c.name).join(', ')}` : ''}${e.text ? ` · ${e.text}` : ''}`,
+    tool: (e) => `${e.name}${e.isError ? ' ✗' : ''}${Number.isFinite(e.ms) ? ` · ${seconds(e.ms)}` : ''} · ${String(e.input?.[TOOL_ARG[e.name]] ?? '')}`,
+    compaction: (e) => `${e.reason}: ${e.before} → ~${e.after} tokens`,
+    error: (e) => e.message,
+};
+
+function logFilterValue() { return $('logFilter').value || 'all'; }
+function updateLogBar() {
+    const agents = [...new Set(exchanges.map((e) => e.agent))];
+    const sel = $('logFilter');
+    const current = sel.value;
+    if (sel.options.length !== agents.length + 1) {
+        sel.replaceChildren(new Option('every agent', 'all'), ...agents.map((a) => new Option(a, a)));
+        sel.value = agents.includes(current) ? current : 'all';
+    }
+    $('logCount').textContent = `${exchanges.length.toLocaleString()} exchange${exchanges.length === 1 ? '' : 's'}`
+        + (logImported ? ' · imported from a file' : '');
+    $('logExport').disabled = !exchanges.length;
+    $('logClear').disabled = !exchanges.length;
+}
+
+function logRow(e) {
+    const box = document.createElement('details');
+    if (logImported) box.classList.add('imported');
+    const s = document.createElement('summary');
+    const span = (cls, text) => { const el = document.createElement('span'); el.className = cls; el.textContent = text; return el; };
+    const time = e.t ? new Date(e.t).toLocaleTimeString() : '';
+    const preview = (LOG_PREVIEW[e.type]?.(e) ?? '').replace(/\s+/g, ' ').slice(0, 200);
+    s.append(span('lt', time), span('la', e.agent ?? ''), span('ly', e.type ?? ''), span('lx', preview));
+    box.append(s);
+    // Filled when opened: a long log would otherwise hold every JSON text at once.
+    box.addEventListener('toggle', () => {
+        if (!box.open || box.querySelector('pre')) return;
+        const pre = document.createElement('pre');
+        pre.textContent = JSON.stringify(e, null, 2);
+        box.append(pre);
+    });
+    return box;
+}
+
+/* Adds what is new; a filter change or a clear redraws. */
+function renderLog({ redraw = false } = {}) {
+    updateLogBar();
+    const list = $('logList');
+    const filter = logFilterValue();
+    if (redraw) { list.replaceChildren(); logShown = 0; }
+    const atEnd = list.scrollTop + list.clientHeight >= list.scrollHeight - 40;
+    for (; logShown < exchanges.length; logShown++) {
+        const e = exchanges[logShown];
+        if (filter === 'all' || e.agent === filter) list.append(logRow(e));
+    }
+    if (!exchanges.length && !list.firstChild) {
+        const empty = document.createElement('div');
+        empty.className = 'files-empty';
+        empty.textContent = 'Nothing yet. Every message, model reply and tool call of this conversation, sub-agents included, appears here.';
+        list.append(empty);
+    } else if (exchanges.length) {
+        list.querySelector('.files-empty')?.remove();
+    }
+    if (atEnd) list.scrollTop = list.scrollHeight;
+}
+$('logFilter').onchange = () => renderLog({ redraw: true });
+$('logClear').onclick = () => { exchanges = []; logImported = false; renderLog({ redraw: true }); };
+
+function download(name, text) {
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+/* The log, plus the main conversation as the provider holds it, so an import can
+ * carry on from it. No key is in either. */
+$('logExport').onclick = () => {
+    const data = {
+        format: LOG_FORMAT, version: 1, exported: new Date().toISOString(),
+        ...(logImported ? { reexported: true } : {}),
+        model: agent && !logImported ? { kind: agent.provider.kind ?? null, model: agent.provider.model ?? null, label: agentLabel } : null,
+        conversation: agent && !logImported ? agent.provider.exportHistory?.() ?? null : importedConversation,
+        exchanges,
+    };
+    download(`tinyemu-agent-log-${data.exported.replace(/[:.]/g, '-')}.json`, JSON.stringify(data, null, 2));
+};
+
+let importedConversation = null;
+$('logImport').onclick = () => $('logPick').click();
+$('logPick').onchange = async () => {
+    const file = $('logPick').files[0];
+    $('logPick').value = '';
+    if (!file) return;
+    let data;
+    try { data = JSON.parse(await file.text()); } catch { addMessage('problem', `${file.name} is not a JSON file.`); return; }
+    if (data?.format !== LOG_FORMAT || !Array.isArray(data.exchanges)) {
+        addMessage('problem', `${file.name} is not a log exported from this page.`);
+        return;
+    }
+    exchanges = data.exchanges.filter((e) => e && typeof e === 'object');
+    importedConversation = data.conversation ?? null;
+    logImported = true;
+    renderLog({ redraw: true });
+    // The conversation goes back only into the same kind of provider: each keeps
+    // its own wire format.
+    const conv = data.conversation;
+    const kind = data.model?.kind;
+    if (!conv || !agent?.provider.importHistory) return;
+    if (running) { addMessage('note', 'Opened the log. Stop the agent and import again to restore its conversation.'); return; }
+    if (kind !== agent.provider.kind) {
+        addMessage('note', `Opened the log. Its conversation was with ${data.model?.label || 'another provider'}, so it can't be `
+            + 'restored into this one; connect the same kind of provider to restore it.');
+        return;
+    }
+    if (!confirm(`Also restore the conversation from ${file.name} into the connected model? It replaces the current conversation.`)) return;
+    try {
+        agent.provider.importHistory(conv);
+        addMessage('note', `Restored the conversation from ${file.name}${data.model?.label ? ` (${data.model.label})` : ''}. `
+            + 'Your next message carries on from it; the chat above does not show its earlier messages.');
+        logImported = false;
+        updateControls();
+    } catch (e) {
+        addMessage('problem', `Could not restore the conversation: ${e.message}`);
+    }
+};
+renderToolStats();
 
 /* ---- token usage ---------------------------------------------------------- */
 
@@ -877,7 +1247,7 @@ function addCompactionCard(c, who = 'the conversation') {
     const pre = document.createElement('pre');
     pre.textContent = c.summary;
     box.append(s, pre);
-    log.append(box);
+    logAppend(box);
     follow();
 }
 
@@ -907,24 +1277,54 @@ let vmReady;
 const skills = new SkillLibrary();
 /* Folders on the user's computer, linked into the workspace (js/LinkedFolders.js). */
 const links = new LinkedFolders({ volume: WORKSPACE_VOLUME, root: WORKSPACE });
+
+/* Read, Edit and Write of files on the page's own volumes (the workspace and the
+ * skills) are served from here, without a trip through the guest: the VM's
+ * volume store is the same one the guest mounts over 9p, which has no cache.
+ * Off until the VM exists, and off again if the guest turns out not to have the
+ * volumes mounted where the paths say. */
+const VOLUME_MOUNTS = [[WORKSPACE, WORKSPACE_VOLUME], [SKILLS_DIR, SKILLS_VOLUME]];
+const pageFiles = {
+    vm: null,
+    mounted: true,
+    route(path) {
+        if (!this.vm || !this.mounted) return null;
+        for (const [dir, volume] of VOLUME_MOUNTS) {
+            if (path === dir || path.startsWith(`${dir}/`)) return { volume, path: path.slice(dir.length) || '/' };
+        }
+        return null;
+    },
+    list(volume, dir) { return this.vm.volumeList(volume, dir); },
+    get(volume, path) { return this.vm.volumeGetFile(volume, path); },
+    put(volume, path, bytes) { return this.vm.volumePutFile(volume, path, bytes); },
+};
+
 const tools = createTools(new Promise((resolve, reject) => { vmReady = { resolve, reject }; }), {
     skills,
     sync: () => links.sync(),
     delegate: (input, ctx) => delegate(input, ctx),
     isEnabled: (name) => !settings.disabledTools.includes(name),
+    files: pageFiles,
+    bashTimeoutMs: () => settings.bashTimeoutMin * 60000,
 });
 /* Sub-agents get the same tools and settings, minus Delegate itself. */
 const delegate = createDelegate({
     tools: tools.without(DELEGATE_TOOL),
     system: () => subagentPrompt(currentSystem()),
     context: contextOptions,
+    maxSteps: () => settings.subMaxSteps,
+    maxConcurrent: () => settings.subMaxConcurrent,
+    emptyRetries: () => settings.emptyRetries,
+    log: logExchange,
     on: {
         usage: (u, kind) => addUsage('sub', u, kind),
         compacted() { compactions.sub++; renderContext(); },
+        toolEnd: (call, result, stats) => countTool(call.name, stats.ms, result.isError),
     },
 });
 let agent = null;
-let running = null;   // AbortController of the turn in progress
+let agentLabel = '';
+let running = null;   // AbortController of the turn (or compaction) in progress
 renderContext();
 
 let loading = false;   // a chosen model is being loaded
@@ -932,13 +1332,17 @@ function updateControls() {
     const usable = !!agent;
     $('prompt').disabled = !usable;
     $('send').disabled = !usable;
-    $('send').textContent = running ? 'Stop' : 'Send';
+    // During a turn, a typed message goes to the agent at its next step.
+    const appending = !!running?.turn && !!$('prompt').value.trim();
+    $('send').textContent = running ? (appending ? 'Append' : 'Stop') : 'Send';
+    $('send').title = appending ? 'Give the agent this message at its next step, without stopping it' : '';
     // Switching model starts a new conversation, so not in the middle of a turn.
     $('connect').disabled = !!running || loading;
     $('model').disabled = !!running || loading || !modelsListed;
     // A compaction rewrites the history, so never during a turn.
     $('compactNow').disabled = !agent || !!running || !agent.provider.transcript?.().length;
 }
+$('prompt').addEventListener('input', () => { if (running) updateControls(); });
 
 /* ?baseURL= points the API client at a local proxy or test server. Loopback only:
  * otherwise a crafted link could send the key the user types here to any host. */
@@ -983,39 +1387,143 @@ async function chooseModel() {
 }
 
 function useProvider(provider, label) {
-    agent = new Agent({ provider, tools, on: uiHooks(), context: contextOptions, system: currentSystem });
+    agent = new Agent({
+        provider, tools, on: uiHooks(), context: contextOptions, system: currentSystem,
+        maxSteps: () => settings.maxSteps, emptyRetries: () => settings.emptyRetries, log: logExchange,
+    });
+    agentLabel = label;
     resetUsage();
     compactions.main = 0;
     compactions.sub = 0;
     renderContext();
+    logExchange({ agent: 'main', type: 'start', model: label, kind: provider.kind ?? null, system: currentSystem(), tools: tools.defs.map((d) => d.name) });
     addMessage('note', `Connected to ${label}. This starts a new conversation.`);
     updateControls();
     $('prompt').focus();
 }
 
-async function sendPrompt() {
-    if (running) { running.abort(); return; }
-    const text = $('prompt').value.trim();
-    if (!text || !agent) return;
+/* ---- sending, and messages sent during a turn ------------------------------ */
+
+async function expandText(text) {
+    const { text: expanded, used } = settings.mentions ? await skills.expandMentions(text) : { text, used: [] };
+    if (used.length) addMessage('note', `Included the instructions of ${used.map((id) => `@${id}`).join(', ')}.`);
+    return expanded;
+}
+
+/* Messages typed while the agent works, by queue id: each shows at the bottom of
+ * the chat until the agent takes it, at its next step. */
+const queued = new Map();
+function addQueued(id, text) {
+    const el = document.createElement('div');
+    el.className = 'msg user queued';
+    el.append(text);
+    const note = document.createElement('div');
+    note.className = 'qnote';
+    const what = document.createElement('span');
+    what.textContent = 'Waiting: goes to the agent when its current step or tool calls finish.';
+    const cancel = document.createElement('button');
+    cancel.textContent = 'Cancel';
+    cancel.title = 'Take this message back and put it in the box again';
+    cancel.onclick = () => {
+        if (!agent?.unqueue(id)) return;
+        el.remove();
+        queued.delete(id);
+        if (!$('prompt').value.trim()) $('prompt').value = text;
+        updateControls();
+    };
+    note.append(what, cancel);
+    el.append(note);
+    queuedBox.append(el);
+    log.scrollTop = log.scrollHeight;
+    queued.set(id, {
+        text,
+        // Taken by the agent: it becomes an ordinary message, where the chat is now.
+        deliver() {
+            note.remove();
+            el.classList.remove('queued');
+            logAppend(el);
+            queued.delete(id);
+            follow();
+        },
+        remove() { el.remove(); queued.delete(id); },
+    });
+}
+
+async function appendPrompt(text) {
     $('prompt').value = '';
-    addMessage('user', text);
-    running = new AbortController();
     updateControls();
+    const expanded = await expandText(text);
+    if (!running?.turn) { await startTurn(text, expanded); return; }   // the turn ended meanwhile
+    addQueued(agent.queue(expanded), text);
+}
+
+/* Buttons for a turn that stopped short. Retrying sends the same request again;
+ * it needs the history to end with a user message or tool results, which isn't
+ * so after a reply that hit its limit or a refusal (those were kept). */
+function stopActions(stop) {
+    const a = agent;
+    const ready = () => agent === a && !running;
+    const actions = [];
+    if (stop !== 'max_tokens' && stop !== 'refusal') {
+        actions.push([stop === 'max_steps' ? 'Keep going' : 'Try again', () => { if (ready()) runTurn((s) => agent.retry(s)); }]);
+    }
+    actions.push(['Send “continue”', () => { if (ready()) startTurn('continue', 'continue'); }]);
+    return actions;
+}
+
+async function runTurn(work) {
+    running = new AbortController();
+    running.turn = true;
+    updateControls();
+    let aborted = false;
     try {
+        const r = await work(running.signal);
+        if (r.stop === 'aborted') { aborted = true; addMessage('note', 'Stopped.'); }
+        else if (r.stop === 'empty') addProblem(`${r.detail} Ask again, or tell it to go on.`, stopActions(r.stop));
+        else if (r.stop !== 'end') addProblem(r.detail || `Stopped: ${r.stop}`, stopActions(r.stop));
+    } catch (e) {
+        addProblem(e.message, stopActions('error'));
+    } finally {
+        aborted ||= running.signal.aborted;
+        running = null;
+        // Messages the agent didn't get to: after Stop they go back in the box,
+        // otherwise they start the next turn.
+        const left = agent?.takePending() ?? [];
+        if (left.length) {
+            const texts = left.map((p) => queued.get(p.id)?.text ?? p.text);
+            if (aborted) {
+                for (const p of left) queued.get(p.id)?.remove();
+                $('prompt').value = [texts.join('\n\n'), $('prompt').value.trim()].filter(Boolean).join('\n\n');
+                addMessage('note', 'The messages you sent while it worked are back in the box; send them when you are ready.');
+            } else {
+                for (const p of left) queued.get(p.id)?.deliver();
+                setTimeout(() => runTurn((s) => agent.send(left.map((p) => p.text).join('\n\n'), s)));
+            }
+        }
+        updateControls();
+    }
+}
+
+async function startTurn(shown, expanded = null) {
+    addMessage('user', shown);
+    await runTurn(async (signal) => {
         // The guest can add or edit skills too, so look again before each turn.
         await skills.refresh().catch(() => {});
         await links.sync().catch(() => {});
-        const { text: expanded, used } = settings.mentions ? await skills.expandMentions(text) : { text, used: [] };
-        if (used.length) addMessage('note', `Included the instructions of ${used.map((id) => `@${id}`).join(', ')}.`);
-        const r = await agent.send(expanded, running.signal);
-        if (r.stop === 'aborted') addMessage('note', 'Stopped.');
-        else if (r.stop !== 'end') addMessage('problem', r.detail || `Stopped: ${r.stop}`);
-    } catch (e) {
-        addMessage('problem', e.message);
-    } finally {
-        running = null;
-        updateControls();
+        return agent.send(expanded ?? await expandText(shown), signal);
+    });
+}
+
+async function sendPrompt() {
+    const text = $('prompt').value.trim();
+    if (running) {
+        if (running.turn && text) appendPrompt(text);
+        else running.abort();
+        return;
     }
+    if (!text || !agent) return;
+    $('prompt').value = '';
+    await startTurn(text);
 }
 
 fillProviders();
@@ -1039,7 +1547,9 @@ $('connect').onclick = listModels;
 $('model').onchange = chooseModel;
 $('chat').onsubmit = (e) => { e.preventDefault(); sendPrompt(); };
 $('prompt').onkeydown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!running) sendPrompt(); }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!running || $('prompt').value.trim()) sendPrompt(); }
+    // Escape stops a turn even with a message typed (which would make the button Append).
+    if (e.key === 'Escape' && running) { e.preventDefault(); running.abort(); }
 };
 
 /* ---- boot ------------------------------------------------------------- */
@@ -1048,25 +1558,61 @@ $('prompt').onkeydown = (e) => {
  * that matches this engine build, config and disk image (SnapshotStore checks),
  * instead of booting it again. A cold boot saves one as soon as the VM is ready;
  * "Save state" saves the VM as it is now. ?nosnapshot=1 skips all of this. */
-const SNAPSHOT_KEY = 'tinyemu-agent-vm';
 let snapshotFp = null;   // the running VM's snapshot fingerprint, if snapshots are on
 let liveVM = null;
 
-/* ?distro=<name> boots distro/<name>/ instead of the default; a name that isn't
- * a plain folder name is ignored, so the link can't point outside distro/. */
+/* The machine: which distro (its disk and processor) and how much memory. The VM
+ * tab picks them and keeps the choice in this browser; ?distro=, ?mem= and ?cfg=
+ * override it for one load. A distro name that isn't a plain folder name is
+ * ignored, so a link can't point outside distro/. distro/index.json (serve.mjs,
+ * scripts/build.mjs) lists the distros; without it only the default is offered. */
 const DEFAULT_DISTRO = 'alpine-3.20-x86';
-function distroName() {
-    const name = params.get('distro');
-    return name && /^[\w-][\w.-]*$/.test(name) ? name : DEFAULT_DISTRO;
-}
+const DISTRO_NAME = /^[\w-][\w.-]*$/;
+const MEMORY_SIZES = [128, 256, 512];
+const DEFAULT_MEMORY = 256;
+const ENGINE_ARCHES = ['x86'];   // what this page's engine (x86emu-wasm) runs
+const VM_PREFS = 'tinyemu-agent-vm-settings';
+const vmPrefs = (() => {
+    try { const p = JSON.parse(localStorage.getItem(VM_PREFS)); return p && typeof p === 'object' ? p : {}; } catch { return {}; }
+})();
 
-const VM_OPTIONS = {
+let distroList = [];   // [{ name, label, arch }]
+async function loadDistros() {
+    try {
+        const r = await fetch('distro/index.json', { cache: 'no-store' });
+        if (!r.ok) return;
+        const list = (await r.json())?.distros;
+        if (Array.isArray(list)) distroList = list.filter((d) => d && typeof d.name === 'string' && DISTRO_NAME.test(d.name));
+    } catch { /* an older server or release: just the default */ }
+}
+const distroInfo = (name) => distroList.find((d) => d.name === name) || { name, label: name, arch: 'x86' };
+const runnable = (d) => ENGINE_ARCHES.includes(d.arch);
+
+function chooseMachine() {
+    const offered = (n) => (distroList.length ? distroList.some((d) => d.name === n && runnable(d)) : n === DEFAULT_DISTRO);
+    const fromURL = params.get('distro');
+    let distro = fromURL && DISTRO_NAME.test(fromURL) ? fromURL : null;
+    if (!distro && typeof vmPrefs.distro === 'string' && offered(vmPrefs.distro)) distro = vmPrefs.distro;
+    if (!distro) distro = offered(DEFAULT_DISTRO) || !distroList.length ? DEFAULT_DISTRO : (distroList.find(runnable)?.name ?? DEFAULT_DISTRO);
+    const memParam = parseInt(params.get('mem'), 10);
+    const memoryMB = memParam > 0 ? memParam : MEMORY_SIZES.includes(vmPrefs.memoryMB) ? vmPrefs.memoryMB : DEFAULT_MEMORY;
+    return { distro, memoryMB, custom: params.get('cfg') || null };
+}
+let machine = null;      // chooseMachine(), at startVM
+let VM_OPTIONS = null;   // vmOptions(machine)
+const vmState = { how: null, seconds: null, saved: null };   // for the VM tab
+
+/* Each machine keeps its own saved state. The default keeps the key it always had. */
+const snapshotKey = () => (machine.custom ? 'tinyemu-agent-vm:custom'
+    : machine.distro === DEFAULT_DISTRO ? 'tinyemu-agent-vm' : `tinyemu-agent-vm:${machine.distro}`);
+
+const vmOptions = ({ distro, memoryMB, custom }) => ({
     // A distro's guest.cfg names its kernel and disk relative to itself, so the
     // page works from any static host and path. serve.mjs generates it; a release
     // build (scripts/build.mjs) writes it next to the distro. ?cfg= boots any config.
-    configUrl: params.get('cfg') || `distro/${distroName()}/guest.cfg`,
+    configUrl: custom || `distro/${distro}/guest.cfg`,
     mode: 'worker',
-    memoryMB: parseInt(params.get('mem'), 10) || 256,
+    memoryMB,
     cmdline: [
         // Make the boot visible: early messages go to the serial port, which
         // shares the console, and the log level is raised.
@@ -1087,7 +1633,74 @@ const VM_OPTIONS = {
         { name: WORKSPACE_VOLUME, backend: 'indexeddb', type: 'files', storageKey: 'tinyemu-agent-workspace' },
         { name: SKILLS_VOLUME, backend: 'indexeddb', type: 'files', storageKey: SKILLS_STORAGE_KEY },
     ],
+});
+
+/* ---- the VM tab ------------------------------------------------------------ */
+
+function fillVMTab() {
+    const sel = $('vmConfig');
+    sel.replaceChildren();
+    const list = distroList.length ? [...distroList] : [distroInfo(machine.distro)];
+    if (!machine.custom && !list.some((d) => d.name === machine.distro)) list.push(distroInfo(machine.distro));
+    for (const d of list) {
+        const o = new Option(runnable(d) ? d.label || d.name : `${d.label || d.name}: needs the ${d.arch} engine, not in this build`, d.name);
+        o.disabled = !runnable(d);
+        sel.append(o);
+    }
+    if (machine.custom) sel.prepend(new Option(`the config in the link (${machine.custom})`, ''));
+    sel.value = machine.custom ? '' : machine.distro;
+    const mem = $('vmMemory');
+    mem.replaceChildren(...[...new Set([...MEMORY_SIZES, machine.memoryMB])].sort((a, b) => a - b).map((n) => new Option(`${n} MB`, String(n))));
+    mem.value = String(machine.memoryMB);
+    const overridden = ['distro', 'mem', 'cfg'].filter((k) => params.has(k));
+    $('vmConfigNote').textContent = overridden.length
+        ? `This page's link sets ${overridden.map((k) => `?${k}=`).join(', ')}; restarting from here drops it and uses what you pick.`
+        : '';
+    vmChoiceChanged();
+}
+function vmChoiceChanged() {
+    const distro = $('vmConfig').value;
+    const memoryMB = Number($('vmMemory').value);
+    $('vmApply').disabled = !distro || (!machine.custom && distro === machine.distro && memoryMB === machine.memoryMB);
+}
+$('vmConfig').onchange = vmChoiceChanged;
+$('vmMemory').onchange = vmChoiceChanged;
+$('vmApply').onclick = async () => {
+    const distro = $('vmConfig').value;
+    const memoryMB = Number($('vmMemory').value);
+    if (!distro) return;
+    if (!confirm(`Reload the page to start the VM as ${distroInfo(distro).label || distro} with ${memoryMB} MB?\n\n`
+        + 'What runs in the VM now stops (press Save state first to come back to it). The workspace and skills are kept. '
+        + 'The chat starts over: export it from the Log tab first if you want to restore the conversation after.')) return;
+    try { localStorage.setItem(VM_PREFS, JSON.stringify({ ...vmPrefs, distro, memoryMB })); } catch {
+        addMessage('problem', 'This browser has no storage for the choice, so it would be lost on the restart.');
+        return;
+    }
+    await liveVM?.flush().catch(() => {});
+    const url = new URL(location.href);
+    for (const k of ['distro', 'mem', 'cfg']) url.searchParams.delete(k);
+    location.href = url.href;
 };
+
+function renderVMStats() {
+    const dl = $('vmStats');
+    dl.replaceChildren();
+    const row = (term, value) => {
+        const dt = document.createElement('dt');
+        dt.textContent = term;
+        const dd = document.createElement('dd');
+        dd.textContent = value;
+        dl.append(dt, dd);
+    };
+    if (!machine) return;
+    const d = distroInfo(machine.distro);
+    row('System', machine.custom ? machine.custom : `${d.label || d.name} (distro/${d.name})`);
+    row('Processor', machine.custom ? 'as the config says' : d.arch);
+    row('Memory', `${machine.memoryMB} MB`);
+    row('Running', vmState.how ? `${vmState.how} in ${vmState.seconds} s` : 'starting…');
+    row('Saved state', !snapshotFp ? 'off (?nosnapshot=1, or this browser can\'t fingerprint the VM)'
+        : vmState.saved ? `${new Date(vmState.saved.at).toLocaleString()}, ${megabytes(vmState.saved.size)}` : 'none yet');
+}
 
 // Volumes save themselves every 3 s; also try when the page goes away.
 addEventListener('pagehide', () => { liveVM?.flush(); });
@@ -1111,13 +1724,54 @@ const files = new FileBrowser({
 
 /* ---- linked folders ------------------------------------------------------ */
 
-/* The File System Access API is in Chromium browsers only. Elsewhere the button
- * stays, disabled, with the reason. */
-if (!window.showDirectoryPicker) {
-    $('filesLink').disabled = true;
-    $('filesLink').title = 'Linking a folder needs a browser with the File System Access API, such as Chrome or Edge.';
+/* The File System Access API, which linking needs, is in Chromium browsers only.
+ * Elsewhere (Firefox, Safari) the button copies a folder in once instead: a page
+ * there can read a picked folder but never write to it or see it change. */
+const canLink = !!window.showDirectoryPicker;
+if (!canLink) {
+    $('filesLink').textContent = 'Copy folder in';
+    $('filesLink').title = 'Copy a folder from your computer into this folder. This browser can\'t give a page lasting '
+        + 'access to a folder, so it is a one-time copy, not kept in sync (Chrome and Edge can link one).';
 }
+$('filesLinkPick').onchange = async () => {
+    const picked = [...$('filesLinkPick').files];
+    $('filesLinkPick').value = '';
+    await copyFolderIn(picked);
+};
+
+/* The one-time copy: a picked folder's files (webkitRelativePath starts with its
+ * name) into dir/<its name>, or <name>-2 if that is taken. Empty folders inside
+ * it don't come along: the picker lists files only. */
+async function copyFolderIn(picked, dir = files.path) {
+    if (!picked.length) { addMessage('problem', 'That folder has no files in it, so there is nothing to copy.'); return; }
+    if (!liveVM) { addMessage('problem', 'The VM is still starting; copy the folder in once it runs.'); return; }
+    const top = picked[0].webkitRelativePath.split('/')[0] || 'folder';
+    const taken = new Set(((await liveVM.volumeList(WORKSPACE_VOLUME, dir)) || []).map((e) => e.name));
+    let name = top;
+    for (let n = 2; taken.has(name); n++) name = `${top}-${n}`;
+    const path = dir === '/' ? `/${name}` : `${dir}/${name}`;
+    const items = picked.map((file) => ({ rel: `${name}/${file.webkitRelativePath.split('/').slice(1).join('/') || file.name}`, file }));
+    const bytes = picked.reduce((n, f) => n + f.size, 0);
+    files.busy.set(path, 'copying…');
+    $('filesLink').disabled = true;
+    try {
+        await liveVM.volumeMkdir(WORKSPACE_VOLUME, path);
+        await files.refresh();
+        await files.upload(items, dir);
+        addMessage('note', `Copied ${top} from your computer into ${WORKSPACE}${path} (${picked.length} files, ${formatSize(bytes)}). `
+            + 'It is a copy: this browser can\'t link folders, so changes on either side stay on that side. '
+            + 'Download files from the Files tab to take them back.');
+    } catch (e) {
+        addMessage('problem', `Could not copy ${top}: ${e.message}`);
+    } finally {
+        files.busy.delete(path);
+        $('filesLink').disabled = false;
+        files.refresh();
+    }
+}
+
 $('filesLink').onclick = async () => {
+    if (!canLink) { $('filesLinkPick').click(); return; }
     let handle;
     try {
         handle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'tinyemu-agent-link' });
@@ -1141,7 +1795,7 @@ async function linkFolder(handle, dir = files.path) {
         addMessage('problem', e instanceof LinkError ? e.message : `Could not link ${handle.name}: ${e.message}`);
     } finally {
         $('filesLink').textContent = old;
-        $('filesLink').disabled = !window.showDirectoryPicker;
+        $('filesLink').disabled = false;
         files.refresh();
     }
 }
@@ -1157,6 +1811,8 @@ links.on((type, text, kind) => {
         const waiting = links.needingPermission.length;
         $('filesReconnect').hidden = !waiting;
         $('filesReconnect').textContent = `Reconnect (${waiting})`;
+        // A link being made shows at once, with a spinner, and loses it when done.
+        if (!$('filesPane').hidden && links.linking.size) files.refresh();
     }
 });
 // Coming back to the page, perhaps from editing a linked file elsewhere.
@@ -1168,7 +1824,9 @@ links.load().then(() => {
     }
 });
 
-const TABS = { console: ['tabConsole', 'consolePane'], files: ['tabFiles', 'filesPane'], skills: ['tabSkills', 'skillsPane'] };
+const TABS = {
+    console: ['tabConsole', 'consolePane'], files: ['tabFiles', 'filesPane'], skills: ['tabSkills', 'skillsPane'], vm: ['tabVM', 'vmPane'],
+};
 function showTab(tab) {
     for (const [name, [tabId, paneId]] of Object.entries(TABS)) {
         $(tabId).setAttribute('aria-selected', String(name === tab));
@@ -1176,11 +1834,13 @@ function showTab(tab) {
     }
     if (tab === 'files') files.refresh();
     else if (tab === 'skills') skills.refresh().then(renderSkills, () => {});
+    else if (tab === 'vm') renderVMStats();
     else $('term').scrollTop = $('term').scrollHeight;
 }
 $('tabConsole').onclick = () => showTab('console');
 $('tabFiles').onclick = () => showTab('files');
 $('tabSkills').onclick = () => showTab('skills');
+$('tabVM').onclick = () => showTab('vm');
 
 /* ---- skills ------------------------------------------------------------- */
 
@@ -1353,6 +2013,7 @@ $('tabFiles').addEventListener('dragenter', (e) => {
 async function runVM(mgr, snapshot, work) {
     const vm = await mgr.create('agent-vm', { ...VM_OPTIONS, snapshot });
     files.setVM(vm);
+    pageFiles.vm = vm;   // Read, Edit and Write of the volumes, from the page
     let fail;
     const failed = new Promise((_, reject) => { fail = reject; });
     failed.catch(() => {});
@@ -1415,7 +2076,9 @@ async function saveState({ auto = false } = {}) {
     $('snapInfo').textContent = 'saving the VM state…';
     try {
         const { blob, info } = await liveVM.saveSnapshot();
-        await SnapshotStore.save(SNAPSHOT_KEY, snapshotFp, { blob, info });
+        await SnapshotStore.save(snapshotKey(), snapshotFp, { blob, info });
+        vmState.saved = { at: Date.now(), size: blob.size };
+        renderVMStats();
         $('snapInfo').textContent = `state saved ${new Date().toLocaleTimeString()} (${megabytes(blob.size)})`;
         addMessage('note', `${auto ? 'Saved the booted VM' : 'Saved the VM'} (${megabytes(blob.size)}, paused for `
             + `${info.pausedMs} ms). Reloading the page resumes it from here.`);
@@ -1431,6 +2094,11 @@ async function startVM() {
     boot.timer = setInterval(showBoot, 1000);
     showBoot();
     const mgr = new VMManager({ network: { subnet: '10.0.2.0/24' } });
+    await loadDistros();
+    machine = chooseMachine();
+    VM_OPTIONS = vmOptions(machine);
+    fillVMTab();
+    renderVMStats();
 
     if (!params.has('nosnapshot')) {
         bootStage('checking for a saved state');
@@ -1440,7 +2108,8 @@ async function startVM() {
             options: { ...VM_OPTIONS, volumes: undefined },
         }).catch((e) => { console.warn('snapshot fingerprint', e); return null; });
     }
-    const saved = snapshotFp && await SnapshotStore.load(SNAPSHOT_KEY, snapshotFp).catch(() => null);
+    const saved = snapshotFp && await SnapshotStore.load(snapshotKey(), snapshotFp).catch(() => null);
+    if (saved) vmState.saved = { at: saved.savedAt, size: saved.blob.size };
 
     let vm, bridge, how = 'booted';
     if (saved) {
@@ -1453,7 +2122,8 @@ async function startVM() {
             $('snapInfo').textContent = `resumed the state saved ${new Date(saved.savedAt).toLocaleString()}`;
         } catch (e) {
             addMessage('note', `Could not resume the saved state (${e.message}), so booting from scratch.`);
-            await SnapshotStore.delete(SNAPSHOT_KEY);
+            await SnapshotStore.delete(snapshotKey());
+            vmState.saved = null;
         }
     }
     if (!vm) {
@@ -1467,22 +2137,48 @@ async function startVM() {
     $('stdin').onkeydown = (e) => {
         if (e.key === 'Enter') { vm.sendInput($('stdin').value + '\n'); $('stdin').value = ''; }
     };
+    await checkMounts(bridge);
     vmReady.resolve(bridge);
     bootEnd();
+    vmState.how = how;
+    vmState.seconds = bootSeconds();
+    renderVMStats();
     setStatus('VM ready', 'ready');
     addMessage('note', `The VM is ready (${how} in ${bootSeconds()} s).${agent ? '' : ' Choose a provider, press Connect and pick a model.'}`);
     if (snapshotFp) $('saveState').disabled = false;
     else $('snapInfo').textContent = 'saving state is off';
 
     // For console poking and for driving the page from tests.
-    window.agentDemo = { vm, bridge, tools, skills, links, linkFolder, settings, usage, useProvider, Agent, saveState };
+    window.agentDemo = {
+        vm, bridge, tools, skills, links, linkFolder, copyFolderIn, settings, usage, useProvider, Agent, saveState, pageFiles,
+        exchanges: () => exchanges, toolStats: () => toolStats, machine,
+    };
 
     if (how === 'booted' && snapshotFp) await saveState({ auto: true });
 }
 
+/* The page serves Read, Edit and Write of /workspace and /agent/skills itself
+ * (pageFiles), which is only right while the guest has those volumes mounted
+ * there. A distro whose 9p mounts failed falls back to the guest for them. */
+async function checkMounts(bridge) {
+    const want = VOLUME_MOUNTS.map(([dir]) => dir);
+    try {
+        const r = await bridge.exec({ script: 'cat /proc/mounts', timeoutMs: 20000, graceMs: 5000 });
+        const mounts = new TextDecoder().decode(r.out).split('\n').map((l) => l.split(' '));
+        const ok = want.every((dir) => mounts.some((m) => m[1] === dir && m[2] === '9p'));
+        pageFiles.mounted = ok;
+        if (!ok) console.warn('agent: the workspace or skills volume is not mounted; file tools go through the guest');
+    } catch {
+        pageFiles.mounted = false;
+    }
+}
+
 $('saveState').onclick = () => saveState();
 $('freshBoot').onclick = async () => {
-    await SnapshotStore.delete(SNAPSHOT_KEY);
+    if (!confirm('Forget the saved state of this machine and reload the page to boot it from scratch? What runs in the VM '
+        + 'now stops; the workspace and skills are kept, and the chat starts over.')) return;
+    await SnapshotStore.delete(snapshotKey());
+    await liveVM?.flush().catch(() => {});
     location.reload();
 };
 

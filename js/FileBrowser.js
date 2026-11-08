@@ -50,6 +50,7 @@ export class FileBrowser {
         this.path = '/';
         this.previewPath = null;
         this.selected = new Set();   // names ticked in the open folder
+        this.busy = new Map();       // path -> what is happening to it (a folder being copied in)
         this._names = [];            // names listed in the open folder
         this._seq = 0;
 
@@ -200,17 +201,25 @@ export class FileBrowser {
                 };
             }
             const icon = document.createElement('span');
-            const link = !e.up && e.dir ? this.links?.at(join(this.path, e.name)) : null;
-            icon.textContent = link ? '🔗' : e.dir ? '📁' : '📄';
+            const full = join(this.path, e.name);
+            const link = !e.up && e.dir ? this.links?.at(full) : null;
+            // A folder still being linked or copied in shows a spinner, not its icon.
+            const busy = e.up ? null : this.busy.get(full) || (this.links?.linking?.has(full) ? 'linking…' : null);
+            if (busy) {
+                icon.className = 'spinner';
+                icon.title = busy;
+            } else {
+                icon.textContent = link ? '🔗' : e.dir ? '📁' : '📄';
+            }
             icon.setAttribute('aria-hidden', 'true');
             const name = document.createElement('span');
             name.className = 'fname';
             name.textContent = e.dir && !e.up ? `${e.name}/` : e.name;
             const size = document.createElement('span');
             size.className = 'meta';
-            size.textContent = link
+            size.textContent = busy || (link
                 ? (link.needsPermission ? 'linked · needs Reconnect' : `linked · ${link.name}`)
-                : e.dir ? '' : formatSize(e.size);
+                : e.dir ? '' : formatSize(e.size));
             if (link) size.title = `Kept in sync with the folder ${link.name} on your computer`;
             const when = document.createElement('span');
             when.className = 'meta';
@@ -268,6 +277,9 @@ export class FileBrowser {
         this._closePreview();
         await this.refresh();
     }
+
+    /** Copy files into the volume (see _upload), as Upload and dropping do. */
+    upload(items, dir = this.path) { return this._upload(items, dir); }
 
     /**
      * Copy files into the volume.

@@ -110,7 +110,21 @@ export class ClaudeProvider {
      * earlier thinking block is edited (the API checks that). */
     resetHistory(text) { this.messages = [{ role: 'user', content: text }]; }
 
-    addUser(text) { this.messages.push({ role: 'user', content: text }); }
+    /** The history as plain JSON, for the page's log export. */
+    exportHistory() { return { format: 'claude', messages: structuredClone(this.messages) }; }
+
+    /** Put back an exported history (the page's log import). */
+    importHistory(h) {
+        if (h?.format !== 'claude' || !Array.isArray(h.messages)) throw new Error('that is not a Claude conversation');
+        this.messages = structuredClone(h.messages);
+    }
+
+    /* After tool results, a message goes in the same user turn, as a text block. */
+    addUser(text) {
+        const last = this.messages[this.messages.length - 1];
+        if (last?.role === 'user' && Array.isArray(last.content)) last.content.push({ type: 'text', text });
+        else this.messages.push({ role: 'user', content: text });
+    }
 
     addToolResults(results) {
         this.messages.push({
@@ -170,6 +184,13 @@ export class ClaudeProvider {
             if (reason === 'max_tokens' && toolUses.length) {
                 // The inputs may be cut off, and answering would run them; drop the turn.
                 return { stop: 'max_tokens', detail: 'The response hit max_tokens in the middle of a tool call.' };
+            }
+            // No text and no calls (thinking at most): nothing to answer, and an
+            // assistant turn without content is refused next time. Leave it out,
+            // so the same request can be sent again.
+            const said = message.content.some((b) => (b.type === 'text' && b.text.trim()) || b.type === 'tool_use');
+            if (!said && reason !== 'pause_turn' && reason !== 'max_tokens') {
+                return { stop: 'empty', detail: 'The model returned an empty response.' };
             }
             this.messages.push({ role: 'assistant', content: message.content });
             if (reason === 'pause_turn') continue;

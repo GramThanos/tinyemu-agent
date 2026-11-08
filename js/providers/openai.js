@@ -179,6 +179,15 @@ export class OpenAICompatProvider {
     /** Keep the system prompt; replace the rest with one user message. */
     resetHistory(text) { this.messages = [this.messages[0], { role: 'user', content: text }]; }
 
+    /** The history less the system prompt, as plain JSON, for the page's log export. */
+    exportHistory() { return { format: 'openai', messages: structuredClone(this.messages.slice(1)) }; }
+
+    /** Put back an exported history (the page's log import), under the current system prompt. */
+    importHistory(h) {
+        if (h?.format !== 'openai' || !Array.isArray(h.messages)) throw new Error('that is not a conversation of this kind');
+        this.messages = [this.messages[0], ...structuredClone(h.messages)];
+    }
+
     addUser(text) { this.messages.push({ role: 'user', content: text }); }
 
     addToolResults(results) {
@@ -233,7 +242,8 @@ export class OpenAICompatProvider {
             return { stop: 'max_tokens', detail: 'The response hit the output limit.' };
         }
         if (finish === 'content_filter') return { stop: 'refusal', detail: 'The provider filtered the response.' };
-        if (!text && !toolCalls.length) return { stop: 'refusal', detail: 'The model returned an empty response.' };
+        // Nothing to keep: left out of the history, so the same request can go again.
+        if (!text && !toolCalls.length) return { stop: 'empty', detail: 'The model returned an empty response.' };
 
         for (const c of toolCalls) c.id ||= `call_${++this._seq}`;
         this.messages.push({

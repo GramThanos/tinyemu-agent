@@ -1,0 +1,9 @@
+{
+  "distros": [
+    {
+      "name": "alpine-3.20-x86",
+      "label": "Alpine 3.20 (x86)",
+      "arch": "x86"
+    }
+  ]
+}

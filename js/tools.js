@@ -24,8 +24,8 @@ const GLOB_MAX = 1000;
 const GREP_MAX = 500;
 const GREP_MAX_LINE = 500;
 const OUTPUT_MAX = 30000;          // characters of Bash output returned to the model
-const BASH_DEFAULT_MS = 120000;
-const BASH_MAX_MS = 600000;
+export const BASH_DEFAULT_MS = 30 * 60 * 1000;   // the emulated CPU is slow: builds and installs take long
+export const BASH_MAX_MS = 2 * 60 * 60 * 1000;
 const FS_TIMEOUT_MS = 60000;       // Read/Write/Edit
 const SEARCH_TIMEOUT_MS = 120000;  // Glob/Grep: a cold 9p tree fetches over the network
 const READY_TIMEOUT_MS = 60000;    // how long a call waits for a VM that is still booting
@@ -97,20 +97,33 @@ export const TOOL_DEFS = [
             required: ['pattern'],
         },
     },
-    {
+    bashDef(BASH_DEFAULT_MS),
+];
+
+/* A shell's name: short, and safe to show. */
+const SHELL_NAME = /^[\w.-]{1,40}$/;
+export const DEFAULT_SHELL = 'main';
+
+// A declaration, so TOOL_DEFS (above) can use it through bashDef.
+function minutes(ms) { return `${+(ms / 60000).toFixed(2)} minute${ms === 60000 ? '' : 's'}`; }
+
+/** The Bash definition. Its description names the default timeout, which the user can set. */
+export function bashDef(defaultMs = BASH_DEFAULT_MS) {
+    return {
         name: 'Bash',
-        description: 'Runs a command with /bin/sh in the VM.The working directory carries over between calls; environment variables do not. Output is stdout and stderr merged. Several Bash calls in one message run at the same time; if more than one changes directory, the last to finish wins. With run_in_background the call returns at once with where to find the output and exit code, and the command keeps running with no timeout until it ends or you kill it.',
+        description: 'Runs a command with /bin/sh in the VM, in a shell session. A shell keeps its working directory and exported variables (export NAME=value) between calls; other variables and functions do not carry over. Output is stdout and stderr merged. Several Bash calls in one message run at the same time; give them different shells when they should not share a directory or variables (a server in one, tests in another). If parallel calls in one shell change its directory or variables, the last to finish wins. With run_in_background the call returns at once with where to find the output and exit code, and the command keeps running with no timeout until it ends or you kill it.',
         input_schema: {
             type: 'object',
             properties: {
                 command: { type: 'string', description: 'Shell command string.' },
-                timeout: { type: 'integer', description: 'Maximum runtime in milliseconds. Default: 120000. Maximum: 600000.' },
+                timeout: { type: 'integer', description: `Maximum runtime in milliseconds; the command is killed when it runs out. Default: ${defaultMs} (${minutes(defaultMs)}). Maximum: ${BASH_MAX_MS} (2 hours).` },
                 run_in_background: { type: 'boolean', description: 'Return immediately and leave the command running. Default: false.' },
+                shell: { type: 'string', description: 'The shell session to run in: up to 40 letters, digits, dots, dashes or underscores. A new name opens a new shell, which starts in your current directory with your exported variables. Default: your own shell.' },
             },
             required: ['command'],
         },
-    },
-];
+    };
+}
 
 export const DELEGATE_TOOL = 'Delegate';
 
@@ -224,13 +237,36 @@ export function truncateOutput(text, max = OUTPUT_MAX) {
     return `${text.slice(0, keep)}\n[... ${text.length - keep * 2} characters omitted ...]\n${text.slice(-keep)}`;
 }
 
+/* Exported variables a shell doesn't carry: the job's own, and the directory,
+ * which the shell's cwd already holds. */
+const ENV_SKIP = new Set(['PWD', 'OLDPWD', 'SHLVL', 'AGENT_DIR', '_']);
+
+/** `export -p` output, less what ENV_SKIP names: what a shell carries to its next call. */
+export function shellEnv(text) {
+    // One entry per `export NAME=...`; a quoted value can span lines.
+    return text.split(/\n(?=(?:export|declare -x) )/)
+        .filter((entry) => {
+            const m = entry.match(/^(?:export|declare -x) ([A-Za-z_]\w*)/);
+            return m && !ENV_SKIP.has(m[1]);
+        })
+        .join('\n').replace(/\n*$/, '\n');
+}
+
+const FILE_TOOLS = new Set(['Read', 'Edit', 'Write']);
+
 /**
- * Bind the tools to a bridge. The working directory lives here because Bash changes
- * it and every other tool resolves relative paths against it.
+ * Bind the tools to a bridge.
  *
  * The bridge can be a promise of one, so the model can be connected while the VM
  * still boots: a call then waits up to `readyTimeoutMs` for it, and otherwise
  * returns an error result the model can act on, having run nothing.
+ *
+ * Shells: Bash runs in a named shell, which keeps a working directory and the
+ * exported variables between calls; every other tool resolves relative paths
+ * against the caller's own shell. The object returned uses the shell `main`;
+ * `forShell(name)` gives the same tools with another default shell (a
+ * sub-agent's), which starts as a copy of this one. Bash's `shell` input picks
+ * any other, made the same way on first use.
  *
  * `skills` (a SkillLibrary, or anything with list() and load(id)) adds the `skill`
  * tool while it holds skills. That tool reads the skills volume from the page, so
@@ -240,19 +276,45 @@ export function truncateOutput(text, max = OUTPUT_MAX) {
  * to its report (see createDelegate in Agent.js). `isEnabled(name)` hides tools
  * the user turned off: they leave the list and refuse to run.
  *
+ * `files`, if given, serves Read, Edit and Write of paths on the page's JS volumes
+ * (the workspace and the skills) from the page, with no guest round trip and no
+ * wait for a booting VM: { route(absPath) -> { volume, path } | null,
+ * list(volume, dir), get(volume, path), put(volume, path, bytes) }, the VM's
+ * volume operations. A path it doesn't route goes to the guest as before.
+ *
+ * `bashTimeoutMs()` is Bash's default timeout, read at each call and in its
+ * description.
+ *
  * `sync()`, if given, is awaited before and after every call that touches the VM
  * (linked folders are brought up to date then); its failures are ignored.
  * @param {{exec:Function}|Promise<{exec:Function}>} bridgeOrPromise
  */
 export function createTools(bridgeOrPromise, {
     cwd = DEFAULT_CWD, readyTimeoutMs = READY_TIMEOUT_MS, skills = null, delegate = null, isEnabled = () => true,
-    sync = null,
+    sync = null, files = null, bashTimeoutMs = () => BASH_DEFAULT_MS,
 } = {}) {
     const syncQuietly = async () => { try { await sync?.(); } catch { /* the call still runs */ } };
-    const state = { cwd };
+
+    /* name -> { name, cwd, env }: env is the shell's exported variables, as a script. */
+    const shells = new Map();
+    const shellOf = (name, from = null) => {
+        let sh = shells.get(name);
+        if (!sh) {
+            sh = { name, cwd: from?.cwd ?? cwd, env: from?.env ?? null };
+            shells.set(name, sh);
+        }
+        return sh;
+    };
+    shellOf(DEFAULT_SHELL);
+
+    const defaultTimeout = () => {
+        const n = bashTimeoutMs();
+        return Number.isInteger(n) && n >= 1000 ? Math.min(n, BASH_MAX_MS) : BASH_DEFAULT_MS;
+    };
     const defs = () => {
         const skill = skills && skillToolDef(skills.list());
-        return [...TOOL_DEFS, skill, delegate && DELEGATE_DEF].filter((d) => d && isEnabled(d.name));
+        const base = TOOL_DEFS.map((d) => (d.name === 'Bash' ? bashDef(defaultTimeout()) : d));
+        return [...base, skill, delegate && DELEGATE_DEF].filter((d) => d && isEnabled(d.name));
     };
     let bridge = null;
     let bootError = null;
@@ -283,10 +345,17 @@ export function createTools(bridgeOrPromise, {
         }
     };
     // Only `.` segments are removed: `..` depends on symlinks, so the guest resolves it.
-    const abs = (p) => {
-        const full = p.startsWith('/') ? p : `${state.cwd}/${p}`;
+    const abs = (p, sh) => {
+        const full = p.startsWith('/') ? p : `${sh.cwd}/${p}`;
         const segments = full.split('/').filter((s) => s && s !== '.');
         return `/${segments.join('/')}`;
+    };
+
+    /* A path on a JS volume, served from the page. `..` is left to the guest,
+     * which knows what the path's parents really are. */
+    const route = (path) => {
+        if (!files || path.split('/').includes('..')) return null;
+        try { return files.route(path) || null; } catch { return null; }
     };
 
     /* Calls can run at once, so Read, Edit and Write of one file queue up: an Edit's
@@ -301,14 +370,33 @@ export function createTools(bridgeOrPromise, {
     };
 
     const script = async (body, opts) => {
-        const r = await bridge.exec({ script: body, cwd: state.cwd, timeoutMs: FS_TIMEOUT_MS, ...opts });
+        const r = await bridge.exec({ timeoutMs: FS_TIMEOUT_MS, ...opts, script: body });
         if (r.aborted) throw new ToolError('Stopped by the user.');
         if (r.timedOut) throw new ToolError(`Timed out after ${Math.round((opts?.timeoutMs || FS_TIMEOUT_MS) / 1000)} s.`);
         return r;
     };
 
-    /** Fetch a whole file's bytes, with the guest explaining any failure. */
+    /* The volume's entry for a routed path: null if it doesn't exist. */
+    const volumeEntry = async (r) => {
+        const cut = r.path.lastIndexOf('/');
+        const name = r.path.slice(cut + 1);
+        if (!name) return { dir: true };   // the volume's root
+        const list = await files.list(r.volume, r.path.slice(0, cut) || '/');
+        return list?.find((e) => e.name === name) || null;
+    };
+
+    /** Fetch a whole file's bytes, with the guest (or the volume) explaining any failure. */
     const fetchFile = async (path, signal) => {
+        const routed = route(path);
+        if (routed) {
+            const e = await volumeEntry(routed);
+            if (!e) throw new ToolError(`File does not exist: ${path}`);
+            if (e.dir) throw new ToolError(`Path is a directory, not a file: ${path}`);
+            if (e.size > READ_MAX_BYTES) throw new ToolError(`File is too large to read: ${e.size} bytes`);
+            const bytes = await files.get(routed.volume, routed.path);
+            if (!bytes) throw new ToolError(`File does not exist: ${path}`);
+            return bytes;
+        }
         const q = shQuote(path);
         const r = await script(
             `[ -e ${q} ] || { echo "File does not exist: "${q}; exit 3; }
@@ -324,6 +412,14 @@ cp ${q} "$AGENT_DIR/data"`,
     };
 
     const storeFile = async (path, bytes, signal) => {
+        const routed = route(path);
+        if (routed) {
+            if ((await volumeEntry(routed))?.dir) throw new ToolError(`Path is a directory, not a file: ${path}`);
+            const rc = await files.put(routed.volume, routed.path, bytes);
+            // A parent that is a file, say.
+            if (typeof rc === 'number' && rc < 0) throw new ToolError(`Could not write ${path} (error ${-rc}).`);
+            return;
+        }
         const q = shQuote(path);
         const parent = shQuote(path.replace(/\/[^/]*$/, '') || '/');
         const r = await script(`mkdir -p ${parent} && cat "$AGENT_DIR/data" >${q}`, { inputs: { data: bytes }, signal });
@@ -331,17 +427,17 @@ cp ${q} "$AGENT_DIR/data"`,
     };
 
     const handlers = {
-        async Read({ path, offset, limit }, { signal }) {
-            const target = abs(path);
+        async Read({ path, offset, limit }, { signal }, sh) {
+            const target = abs(path, sh);
             const bytes = await inOrder(target, () => fetchFile(target, signal));
             if (bytes.includes(0)) throw new ToolError(`Binary file (${bytes.length} bytes); use Bash to inspect it.`);
             return formatLines(DEC.decode(bytes), offset, limit);
         },
 
-        async Edit({ path, old_string, new_string }, { signal }) {
+        async Edit({ path, old_string, new_string }, { signal }, sh) {
             if (old_string === '') throw new ToolError('old_string must not be empty; use Write to create a file.');
             if (old_string === new_string) throw new ToolError('old_string and new_string are identical.');
-            const target = abs(path);
+            const target = abs(path, sh);
             return inOrder(target, async () => {
                 const bytes = await fetchFile(target, signal);
                 let text;
@@ -355,19 +451,19 @@ cp ${q} "$AGENT_DIR/data"`,
             });
         },
 
-        async Write({ path, content }, { signal }) {
-            const target = abs(path);
+        async Write({ path, content }, { signal }, sh) {
+            const target = abs(path, sh);
             const bytes = ENC.encode(content);
             await inOrder(target, () => storeFile(target, bytes, signal));
             return `Wrote ${bytes.length} bytes to ${target}.`;
         },
 
-        async Glob({ pattern, path = '.' }, { signal }) {
-            const root = abs(path);
+        async Glob({ pattern, path = '.' }, { signal }, sh) {
+            const root = abs(path, sh);
             const q = shQuote(root);
             const r = await script(
                 `[ -d ${q} ] || { echo "Not a directory: "${q}; exit 3; }\nfind ${q} ${PRUNE} -type f -print 2>/dev/null; exit 0`,
-                { timeoutMs: SEARCH_TIMEOUT_MS, signal },
+                { cwd: sh.cwd, timeoutMs: SEARCH_TIMEOUT_MS, signal },
             );
             const output = DEC.decode(r.out);
             if (r.rc === 3) throw new ToolError(output.trim());
@@ -382,8 +478,8 @@ cp ${q} "$AGENT_DIR/data"`,
             return shown.join('\n');
         },
 
-        async Grep({ pattern, path = '.', include }, { signal }) {
-            const target = shQuote(abs(path));
+        async Grep({ pattern, path = '.', include }, { signal }, sh) {
+            const target = shQuote(abs(path, sh));
             const pat = shQuote(pattern);
             // `find -name` has no {a,b} and no directories; only the last path segment applies.
             const names = include ? expandBraces(include.replace(/^.*\//, '')) : [];
@@ -401,7 +497,7 @@ else
     grep -nHE -e ${pat} ${target} 2>/dev/null
 fi | head -n ${limit}
 exit 0`,
-                { timeoutMs: SEARCH_TIMEOUT_MS, signal },
+                { cwd: sh.cwd, timeoutMs: SEARCH_TIMEOUT_MS, signal },
             );
             const output = DEC.decode(r.out);
             if (r.rc === 3) throw new ToolError(output.trim());
@@ -413,32 +509,48 @@ exit 0`,
             return shown.join('\n');
         },
 
-        async Bash({ command, timeout = BASH_DEFAULT_MS, run_in_background = false }, { signal, onOutput }) {
+        async Bash({ command, timeout, run_in_background = false, shell }, { signal, onOutput }, own) {
+            if (shell !== undefined && !SHELL_NAME.test(shell)) {
+                throw new ToolError('shell must be 1 to 40 letters, digits, dots, dashes or underscores.');
+            }
+            const sh = shell ? shellOf(shell, own) : own;
+            const env = sh.env ? { env: sh.env } : {};
             if (run_in_background) {
                 // Its own session, so it outlives this call and can be killed as a group.
+                // It inherits the shell's exported variables.
                 const r = await script(
                     `J=$(mktemp -d /tmp/agent-job.XXXXXX) || exit 1
 cp "$AGENT_DIR/command" "$J/command"
 setsid sh -c 'sh "$1/command" >"$1/out" 2>&1 </dev/null; echo $? >"$1/rc"' sh "$J" </dev/null >/dev/null 2>&1 &
 echo "$! $J"`,
-                    { inputs: { command }, signal },
+                    { cwd: sh.cwd, inputs: { command, ...env }, signal },
                 );
                 const [pid, dir] = DEC.decode(r.out).trim().split(' ');
                 if (r.rc !== 0 || !dir) throw new ToolError(DEC.decode(r.out).trim() || 'Could not start the command.');
-                return `Started in the background.\nOutput: ${dir}/out\nExit code: ${dir}/rc (exists once it has finished)\nTo stop it: kill -TERM -${pid}`;
+                return `Started in the background${shell ? ` from the shell ${shell}` : ''}.\nOutput: ${dir}/out\nExit code: ${dir}/rc (exists once it has finished)\nTo stop it: kill -TERM -${pid}`;
             }
-            const timeoutMs = Math.min(Math.max(1000, timeout), BASH_MAX_MS);
+            const timeoutMs = Math.min(Math.max(1000, timeout ?? defaultTimeout()), BASH_MAX_MS);
             const streamDec = new TextDecoder();
-            const startedIn = state.cwd;
+            const startedIn = sh.cwd;
+            const startedEnv = sh.env;
             const r = await bridge.exec({
                 script: command,
                 cwd: startedIn,
                 timeoutMs,
+                inputs: env,
+                outputs: ['env.after'],
                 signal,
                 onOutput: onOutput && ((chunk) => onOutput(streamDec.decode(chunk, { stream: true }))),
             });
-            // Only a real `cd` counts: a parallel call that didn't move mustn't undo one that did.
-            if (r.cwd && r.cwd !== startedIn) state.cwd = r.cwd;
+            // Only a real change counts: a parallel call that didn't cd or export
+            // mustn't undo one that did.
+            if (r.cwd && r.cwd !== startedIn) sh.cwd = r.cwd;
+            const after = r.files?.['env.after'];
+            if (after) {
+                const next = shellEnv(DEC.decode(after));
+                if (next !== (startedEnv ?? next)) sh.env = next;
+                else sh.env ??= next;
+            }
             let text = truncateOutput(DEC.decode(r.out));
             const notes = [];
             if (r.aborted) notes.push('Stopped by the user.');
@@ -456,58 +568,70 @@ echo "$! $J"`,
         isError: true,
     });
 
-    const tools = {
+    /* One call, in the shell `sh` (the caller's own). */
+    async function runTool(name, input, ctx, sh) {
+        const def = defs().find((d) => d.name === name);
+        if (!def) return notOffered(name);
+        const problem = validateInput(def.input_schema, input);
+        if (problem) return { content: `Invalid input: ${problem}.`, isError: true };
+        try {
+            if (name === SKILL_TOOL || name === DELEGATE_TOOL) {
+                // Neither needs the VM: a sub-agent's own calls wait for it.
+                try {
+                    const content = name === SKILL_TOOL ? await skills.load(input.name) : await delegate(input, ctx);
+                    return { content, isError: false };
+                } catch (e) {
+                    throw new ToolError(e.message);
+                }
+            }
+            // A file on a JS volume needs no guest, so it doesn't wait for one.
+            if (!(FILE_TOOLS.has(name) && route(abs(input.path, sh)))) {
+                await waitForBridge(ctx);
+                if (bootError) throw new ToolError(`The VM failed to boot (${bootError.message}), so no tool can run.`);
+            }
+            await syncQuietly();
+            try {
+                return { content: await handlers[name](input, ctx, sh), isError: false };
+            } finally {
+                await syncQuietly();
+            }
+        } catch (e) {
+            const message = e instanceof ToolError ? e.message : `Tool failed: ${e.message}`;
+            return { content: message, isError: true };
+        }
+    }
+
+    /* The tools as one agent sees them: its default shell, and the tools it may not use. */
+    const view = (shellName, exclude) => ({
         /** Read afresh for each turn: skills and settings change the list. */
-        get defs() { return defs(); },
-        get cwd() { return state.cwd; },
+        get defs() { return defs().filter((d) => !exclude.includes(d.name)); },
+        get cwd() { return shellOf(shellName).cwd; },
+        get shell() { return shellName; },
 
         /**
          * Run one tool call. Never throws for a tool failure: those are results the
          * model should see and recover from.
          * @returns {Promise<{content:string, isError:boolean}>}
          */
-        async run(name, input, ctx = {}) {
-            const def = defs().find((d) => d.name === name);
-            if (!def) return notOffered(name);
-            const problem = validateInput(def.input_schema, input);
-            if (problem) return { content: `Invalid input: ${problem}.`, isError: true };
-            try {
-                if (name === SKILL_TOOL || name === DELEGATE_TOOL) {
-                    // Neither needs the VM: a sub-agent's own calls wait for it.
-                    try {
-                        const content = name === SKILL_TOOL ? await skills.load(input.name) : await delegate(input, ctx);
-                        return { content, isError: false };
-                    } catch (e) {
-                        throw new ToolError(e.message);
-                    }
-                }
-                await waitForBridge(ctx);
-                if (bootError) throw new ToolError(`The VM failed to boot (${bootError.message}), so no tool can run.`);
-                await syncQuietly();
-                try {
-                    return { content: await handlers[name](input, ctx), isError: false };
-                } finally {
-                    await syncQuietly();
-                }
-            } catch (e) {
-                const message = e instanceof ToolError ? e.message : `Tool failed: ${e.message}`;
-                return { content: message, isError: true };
-            }
+        run(name, input, ctx = {}) {
+            if (exclude.includes(name)) return Promise.resolve({ content: `The ${name} tool is not available here.`, isError: true });
+            return runTool(name, input, ctx, shellOf(shellName));
         },
 
         /**
-         * The same tools, sharing the working directory and file ordering, minus
-         * `exclude`: what a sub-agent gets, so it can't delegate in turn.
+         * The same tools, sharing the shells and file ordering, minus `exclude`:
+         * what a sub-agent gets, so it can't delegate in turn.
          */
-        without(...exclude) {
-            return {
-                get defs() { return defs().filter((d) => !exclude.includes(d.name)); },
-                get cwd() { return state.cwd; },
-                run: (name, input, ctx) => (exclude.includes(name)
-                    ? Promise.resolve({ content: `The ${name} tool is not available here.`, isError: true })
-                    : tools.run(name, input, ctx)),
-            };
+        without(...more) { return view(shellName, [...exclude, ...more]); },
+
+        /** The same tools with `name` as the default shell, made from this one's if new. */
+        forShell(name) {
+            shellOf(name, shellOf(shellName));
+            return view(name, exclude);
         },
-    };
-    return tools;
+
+        /** Every shell so far, for display. */
+        shells() { return [...shells.values()].map((s) => ({ name: s.name, cwd: s.cwd })); },
+    });
+    return view(DEFAULT_SHELL, []);
 }

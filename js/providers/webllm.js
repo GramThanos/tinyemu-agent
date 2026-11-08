@@ -50,6 +50,15 @@ export class WebLLMProvider {
     /** Keep the system prompt; replace the rest with one user message. */
     resetHistory(text) { this.messages = [this.messages[0], { role: 'user', content: text }]; }
 
+    /** The history less the system prompt, as plain JSON, for the page's log export. */
+    exportHistory() { return { format: 'webllm', messages: structuredClone(this.messages.slice(1)) }; }
+
+    /** Put back an exported history (the page's log import), under the current system prompt. */
+    importHistory(h) {
+        if (h?.format !== 'webllm' || !Array.isArray(h.messages)) throw new Error('that is not a conversation of this kind');
+        this.messages = [this.messages[0], ...structuredClone(h.messages)];
+    }
+
     /* The tools are described in the system prompt, so it is rewritten. */
     setTools(tools) {
         this.toolDefs = tools;
@@ -133,8 +142,10 @@ export class WebLLMProvider {
         filter.end();
 
         const clean = stripThinking(reply).trim();
+        if (signal?.aborted) { this.messages.push({ role: 'assistant', content: clean }); return { stop: 'aborted' }; }
+        // Left out of the history, so the same request can go again.
+        if (!clean && finish !== 'length') return { stop: 'empty', detail: 'The model returned an empty response.' };
         this.messages.push({ role: 'assistant', content: clean });
-        if (signal?.aborted) return { stop: 'aborted' };
 
         const { calls } = parseToolCalls(clean);
         if (!calls.length) {

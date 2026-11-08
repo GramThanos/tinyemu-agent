@@ -48,32 +48,45 @@ done
 `;
 
 /* One job: a new session (so the whole tree can be killed) that SOURCES the
- * script, which lets `exit N` work and lets `cd` be observed for the next call. */
+ * script, which lets `exit N` work and lets `cd` be observed for the next call.
+ * A Bash shell's exported variables come in as `env` (sourced first) and go
+ * out as `env.after`, so they carry over to the shell's next call.
+ *
+ * The job waits and kills by itself, with no watchdog in the background: the
+ * guest's PID 1 is the console's shell (init=/bin/sh), so a process this script
+ * leaves behind is re-parented to it, and its exit makes that shell redraw its
+ * prompt on the console. `kill -0` still succeeds on an unreaped child, so the
+ * session's trap writes `exited` to end the loop. On `kill` (a timeout or Stop)
+ * the session is killed at once: its process group, and with /proc every other
+ * process in it too. */
 const JOB = `#!/bin/sh
 D=$1
 export AGENT_DIR="$D"
 setsid sh -c '
     cd "$(cat "$AGENT_DIR/cwd" 2>/dev/null)" 2>/dev/null || cd /
-    trap "__rc=\\$?; pwd >\\"\\$AGENT_DIR/cwd.after\\" 2>/dev/null; exit \\$__rc" EXIT
+    trap "__rc=\\$?; pwd >\\"\\$AGENT_DIR/cwd.after\\" 2>/dev/null; export -p >\\"\\$AGENT_DIR/env.after\\" 2>/dev/null; : >\\"\\$AGENT_DIR/exited\\"; exit \\$__rc" EXIT
+    [ -f "$AGENT_DIR/env" ] && . "$AGENT_DIR/env" >/dev/null 2>&1
     . "$AGENT_DIR/script"
 ' >"$D/out" 2>&1 </dev/null &
 pid=$!
-(
-    while kill -0 $pid 2>/dev/null; do
-        if [ -e "$D/kill" ]; then
-            kill -TERM -$pid 2>/dev/null
-            sleep 2
-            kill -KILL -$pid 2>/dev/null
-            exit
-        fi
-        sleep 0.5 2>/dev/null || sleep 1
-    done
-) &
+while [ ! -e "$D/exited" ] && kill -0 $pid 2>/dev/null; do
+    if [ -e "$D/kill" ]; then
+        kill -KILL -$pid 2>/dev/null
+        pkill -KILL -s $pid 2>/dev/null
+        break
+    fi
+    sleep 0.1 2>/dev/null || sleep 1
+done
 wait $pid
 rc=$?
 echo $rc >"$D/rc.tmp"
 mv "$D/rc.tmp" "$D/rc"
 `;
+
+/* Run once agentd answers, after a boot and after a resume. /proc isn't mounted
+ * when the distro boots straight into a shell; the agent's ps and top need it, and
+ * so does killing a whole session (pkill -s). */
+const PREPARE = '[ -e /proc/self ] || mount -t proc proc /proc 2>/dev/null; true';
 
 /* Single line, well under the tty's limit. The subshell keeps the prompt free.
  * msize: TinyEMU's virtqueues have 16 descriptors and no indirect ones, and newer
@@ -126,6 +139,7 @@ export class GuestBridge {
                 await sleep(250);
                 if (await vm.volumeGetFile(VOLUME, '/ready')) {
                     this.ready = true;
+                    await this.exec({ script: PREPARE, timeoutMs: 20000 }).catch(() => {});
                     return;
                 }
             }
@@ -147,7 +161,7 @@ export class GuestBridge {
         this.ready = true;
         try {
             const now = Math.floor(Date.now() / 1000);
-            const r = await this.exec({ script: `date -s @${now} >/dev/null`, timeoutMs, graceMs: 2000 });
+            const r = await this.exec({ script: `date -s @${now} >/dev/null; ${PREPARE}`, timeoutMs, graceMs: 2000 });
             if (r.rc === 0 && !r.timedOut) return true;
         } catch { /* nothing answered */ }
         this.ready = false;

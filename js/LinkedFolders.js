@@ -83,6 +83,7 @@ export class LinkedFolders {
         this.maxBytes = maxBytes;
         this.vm = null;
         this.links = [];   // [{ id, path, name, handle, rootIno, base, needsPermission }]
+        this.linking = new Set();   // workspace paths being linked now (their first copy runs)
         this._listeners = new Set();
         this._chain = Promise.resolve();
         this._queued = null;
@@ -146,9 +147,25 @@ export class LinkedFolders {
         for (let n = 2; taken.has(name); n++) name = `${handle.name}-${n}`;
         const path = join(dir, name);
 
+        // The folder appears at once, marked as being linked, while its files copy in.
+        this.linking.add(path);
+        try {
+            await this.vm.volumeMkdir(this.volume, path);
+            this._emit('change');
+            return await this._firstCopy(handle, path);
+        } catch (e) {
+            // Nothing half-copied stays behind.
+            if (!this.at(path)) await this.vm.volumeDelete(this.volume, path).catch(() => {});
+            throw e;
+        } finally {
+            this.linking.delete(path);
+            this._emit('change');
+        }
+    }
+
+    async _firstCopy(handle, path) {
         const disk = await this._scanDisk(handle);
         const link = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, path, name: handle.name, handle, base: {} };
-        await this.vm.volumeMkdir(this.volume, path);
         for (const rel of disk.dirs) {
             await this.vm.volumeMkdir(this.volume, `${path}/${rel}`);
             link.base[rel] = { dir: true };
@@ -161,7 +178,6 @@ export class LinkedFolders {
         this.links.push(link);
         await this._save(link);
         await this.vm.volumeFlush?.(this.volume).catch(() => {});
-        this._emit('change');
         return { path, files: disk.files.size, bytes: disk.bytes };
     }
 
