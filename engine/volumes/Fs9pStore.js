@@ -12,10 +12,20 @@
  * multi-GB disks. For whole-disk persistence use the (planned) overlay block
  * device instead.
  *
- * Persistence format (single backend file, key IMAGE_KEY):
- *   [u32 headerLen LE][header JSON UTF-8][concatenated file data bytes]
- * header = { version, nextIno, entries:[{p,m,i,t,d,o,l}] }
- *   p=path m=mode i=ino t=mtime(s) d=isDir o=dataOffset l=dataLen
+ * Persistence format, version 2: the tree under key IMAGE_KEY,
+ *   [u32 headerLen LE][header JSON UTF-8]
+ * header = { version: 2, nextIno, entries:[{p,m,i,t,d,l}] }
+ *   p=path m=mode i=ino t=mtime(s) d=isDir l=dataLen
+ * and each non-empty file's bytes under DATA_PREFIX + ino. A flush writes only
+ * the files changed since the last one, then the tree, then drops the data of
+ * removed files, so a crash between steps leaves at worst newer bytes under an
+ * older tree, and orphaned data that the next load removes. Version 1 kept
+ * every file's bytes after the header in the one image ({..., o=dataOffset});
+ * it still loads, and the next flush rewrites it as version 2.
+ *
+ * File contents grow by doubling a backing buffer (node._buf), with node.data
+ * the view of the file's real length: the guest appends in msize-sized writes,
+ * and copying the whole file on each one made writing a big file quadratic.
  */
 
 'use strict';
@@ -33,6 +43,8 @@ const S_IFMT  = 0xF000;
 const ENOENT = 2, EIO = 5, EEXIST = 17, ENOTDIR = 20, EINVAL = 22, ENOTEMPTY = 39;
 
 const IMAGE_KEY = '__fs9p_image__';
+const DATA_PREFIX = '__fs9p_data__/';
+const dataKey = (ino) => DATA_PREFIX + ino;
 
 const BACKENDS = {
     indexeddb: IndexedDBBackend, idb: IndexedDBBackend,
@@ -64,6 +76,8 @@ export class Fs9pStore {
         // gens from different sessions never compare equal.
         this._gen = Date.now() * 1000;
         this._dirty = false;
+        this._dirtyData = new Set();   // inos whose bytes changed since the last flush
+        this._dropped = new Set();     // inos removed since then: their data key goes
         this._initRoot();
     }
 
@@ -105,52 +119,92 @@ export class Fs9pStore {
         try { blob = await this.backend.readFile(IMAGE_KEY); }
         catch { blob = null; }
         if (!blob || blob.length < 4) { this._initRoot(); return; }
-        try { this._deserialize(blob); }
+        try { await this._deserialize(blob); }
         catch (e) { console.error(`Fs9pStore(${this.name}) load failed:`, e); this._initRoot(); }
+    }
+
+    /* Data keys no file refers to: written by a flush whose tree never landed. */
+    async _dropOrphans() {
+        if (!this.backend.list || !this.backend.unlink) return;
+        let keys;
+        try { keys = (await this.backend.list(DATA_PREFIX)).map((e) => e.name); } catch { return; }
+        const live = new Set();
+        for (const n of this.tree.values()) if (n.data && n.data.length) live.add(dataKey(n.ino));
+        for (const k of keys) if (k.startsWith(DATA_PREFIX) && !live.has(k)) await this.backend.unlink(k).catch(() => {});
     }
 
     async flush() {
         if (!this._dirty) return;
-        const blob = this._serialize();
-        await this.backend.writeFile(IMAGE_KEY, blob);
-        await this.backend.flush?.();
+        // Take everything this flush writes now: guest writes keep landing while
+        // it awaits, and must mark the store dirty again rather than be lost.
         this._dirty = false;
+        const dirty = this._dirtyData, dropped = this._dropped;
+        this._dirtyData = new Set();
+        this._dropped = new Set();
+        const datas = [];
+        for (const n of this.tree.values()) {
+            if (n.data && n.data.length && dirty.has(n.ino)) datas.push([n.ino, n.data.slice()]);
+        }
+        const image = this._serialize();
+        try {
+            for (const [ino, bytes] of datas) await this.backend.writeFile(dataKey(ino), bytes);
+            await this.backend.writeFile(IMAGE_KEY, image);
+            await this.backend.flush?.();
+        } catch (e) {
+            // Try again at the next flush.
+            this._dirty = true;
+            for (const ino of dirty) this._dirtyData.add(ino);
+            for (const ino of dropped) this._dropped.add(ino);
+            throw e;
+        }
+        for (const ino of dropped) {
+            try { await this.backend.unlink?.(dataKey(ino)); } catch { /* an orphan the next load removes */ }
+        }
     }
 
     _serialize() {
         const entries = [];
-        const datas = [];
-        let off = 0;
         for (const [p, n] of this.tree) {
             const isDir = this._isDir(n);
             const l = (!isDir && n.data) ? n.data.length : 0;
-            entries.push({ p, m: n.mode, i: n.ino, t: n.mtime, d: isDir ? 1 : 0, o: off, l });
-            if (l) { datas.push(n.data); off += l; }
+            entries.push({ p, m: n.mode, i: n.ino, t: n.mtime, d: isDir ? 1 : 0, l });
         }
-        const header = JSON.stringify({ version: 1, nextIno: this.nextIno, entries });
-        const headerBytes = TEXT_ENC.encode(header);
-        const total = 4 + headerBytes.length + off;
-        const out = new Uint8Array(total);
+        const headerBytes = TEXT_ENC.encode(JSON.stringify({ version: 2, nextIno: this.nextIno, entries }));
+        const out = new Uint8Array(4 + headerBytes.length);
         new DataView(out.buffer).setUint32(0, headerBytes.length, true);
         out.set(headerBytes, 4);
-        let p = 4 + headerBytes.length;
-        for (const d of datas) { out.set(d, p); p += d.length; }
         return out;
     }
 
-    _deserialize(blob) {
+    async _deserialize(blob) {
         const dv = new DataView(blob.buffer, blob.byteOffset, blob.byteLength);
         const headerLen = dv.getUint32(0, true);
         const header = JSON.parse(TEXT_DEC.decode(blob.subarray(4, 4 + headerLen)));
         const dataBase = 4 + headerLen;
+        const v1 = (header.version || 1) === 1;
         this.tree.clear();
         this.nextIno = header.nextIno || 2;
+        const wanted = [];
         for (const e of header.entries) {
             const node = { mode: e.m, ino: e.i, mtime: e.t, data: null, children: null, gen: this._gen };
             if (e.d) node.children = new Set();
-            else node.data = e.l ? blob.slice(dataBase + e.o, dataBase + e.o + e.l) : new Uint8Array(0);
+            else if (!e.l) node.data = new Uint8Array(0);
+            else if (v1) { node.data = blob.slice(dataBase + e.o, dataBase + e.o + e.l); this._dirtyData.add(e.i); }
+            else { node.data = new Uint8Array(0); wanted.push(node); }
             this.tree.set(e.p, node);
         }
+        // Version 2: each file's bytes from its own key. A missing one (a crash
+        // mid-flush) reads as empty rather than failing the whole volume.
+        const BATCH = 64;
+        for (let i = 0; i < wanted.length; i += BATCH) {
+            await Promise.all(wanted.slice(i, i + BATCH).map(async (node) => {
+                let bytes = null;
+                try { bytes = await this.backend.readFile(dataKey(node.ino)); } catch { /* empty */ }
+                if (bytes) node.data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+            }));
+        }
+        if (v1) this._dirty = true;   // rewritten as version 2 at the next flush
+        else await this._dropOrphans();
         // Rebuild children sets from the path list.
         if (!this.tree.has('/')) this._initRoot();
         for (const p of this.tree.keys()) {
@@ -158,6 +212,28 @@ export class Fs9pStore {
             const parent = this.tree.get(dirOf(p));
             if (parent && parent.children) parent.children.add(baseOf(p));
         }
+    }
+
+    /* Make a file `end` bytes long, growing its backing buffer by doubling. */
+    _resize(n, end) {
+        const cur = n.data || new Uint8Array(0);
+        let buf = n._buf && n._buf.buffer === cur.buffer ? n._buf : cur;
+        if (end > buf.length) {
+            const grown = new Uint8Array(Math.max(end, Math.min(buf.length * 2, buf.length + 64 * 1048576), 4096));
+            grown.set(cur, 0);
+            buf = grown;
+        } else if (end > cur.length) {
+            buf.fill(0, cur.length, end);   // bytes past the old end read as zeros
+        }
+        n._buf = buf;
+        n.data = buf.subarray(0, end);
+    }
+
+    _changed(n) {
+        n.mtime = nowSec();
+        n.gen = ++this._gen;
+        this._dirtyData.add(n.ino);
+        this._dirty = true;
     }
 
     /* ---- synchronous ops called from lib.js -------------------------- */
@@ -200,17 +276,9 @@ export class Fs9pStore {
         const n = this._node(path);
         if (!n || this._isDir(n)) return -EINVAL;
         const end = offset + src.length;
-        let data = n.data || new Uint8Array(0);
-        if (end > data.length) {
-            const grown = new Uint8Array(end);
-            grown.set(data, 0);
-            data = grown;
-        }
-        data.set(src, offset);
-        n.data = data;
-        n.mtime = nowSec();
-        n.gen = ++this._gen;
-        this._dirty = true;
+        if (end > (n.data ? n.data.length : 0)) this._resize(n, end);
+        n.data.set(src, offset);
+        this._changed(n);
         return src.length;
     }
 
@@ -236,12 +304,9 @@ export class Fs9pStore {
         if (!n || this._isDir(n)) return -EINVAL;
         const cur = n.data || new Uint8Array(0);
         if (size === cur.length) return 0;
-        const next = new Uint8Array(size);
-        next.set(cur.subarray(0, Math.min(size, cur.length)), 0);
-        n.data = next;
-        n.mtime = nowSec();
-        n.gen = ++this._gen;
-        this._dirty = true;
+        if (size === 0) { n.data = new Uint8Array(0); n._buf = null; }
+        else this._resize(n, size);
+        this._changed(n);
         return 0;
     }
 
@@ -269,6 +334,7 @@ export class Fs9pStore {
         const parent = this._node(dirOf(path));
         if (parent && parent.children) { parent.children.delete(baseOf(path)); this._touchDir(parent); }
         this.tree.delete(path);
+        if (!this._isDir(n)) { this._dirtyData.delete(n.ino); this._dropped.add(n.ino); }
         this._dirty = true;
         return 0;
     }
@@ -291,9 +357,8 @@ export class Fs9pStore {
         const n = this._node(path);
         if (!n || this._isDir(n)) return -EINVAL;
         n.data = new Uint8Array(data);
-        n.mtime = nowSec();
-        n.gen = ++this._gen;
-        this._dirty = true;
+        n._buf = null;
+        this._changed(n);
         return 0;
     }
 

@@ -17,6 +17,13 @@
  *   - a change against a deletion: the change wins.
  * Deleting the linked folder itself in the workspace (or replacing it, which
  * gives it a new inode) only unlinks it: nothing is deleted on disk then.
+ * unlink() does the same on request; it waits for a running sync, so the page
+ * can unlink and then remove the folder without a sync seeing it half gone.
+ *
+ * A link is read-write or read-only (`mode`, 'readwrite' or 'read'). A read-only
+ * one only ever reads the disk: workspace changes stay in the workspace (marked
+ * `local` in the baseline), and a file changed on both sides keeps the disk's
+ * version, with the workspace's saved beside it in the workspace only.
  *
  * Names from the disk reach the page only as text (the Files tab).
  */
@@ -98,7 +105,10 @@ export class LinkedFolders {
 
     async load() {
         try { this.links = (await this.store.all()) || []; } catch (e) { console.warn('links: could not load', e); this.links = []; }
-        for (const link of this.links) link.needsPermission = !(await this._granted(link.handle, false));
+        for (const link of this.links) {
+            link.mode = link.mode === 'read' ? 'read' : 'readwrite';   // links from before modes were read-write
+            link.needsPermission = !(await this._granted(link.handle, false, link.mode));
+        }
         this._emit('change');
     }
 
@@ -110,11 +120,11 @@ export class LinkedFolders {
     /** The link that `path` is in or under, or null. */
     containing(path) { return this.links.find((l) => path === l.path || path.startsWith(`${l.path}/`)) || null; }
 
-    async _granted(handle, ask) {
+    async _granted(handle, ask, mode = 'readwrite') {
         // Handles that need no grant (the origin's private storage) have no API for it.
         if (!handle.queryPermission) return true;
         try {
-            const opts = { mode: 'readwrite' };
+            const opts = { mode };
             if ((await handle.queryPermission(opts)) === 'granted') return true;
             return ask ? (await handle.requestPermission(opts)) === 'granted' : false;
         } catch {
@@ -124,7 +134,7 @@ export class LinkedFolders {
 
     /** Ask again for the folders a reload left without permission. Needs a click. */
     async reconnect() {
-        for (const link of this.needingPermission) link.needsPermission = !(await this._granted(link.handle, true));
+        for (const link of this.needingPermission) link.needsPermission = !(await this._granted(link.handle, true, link.mode));
         this._emit('change');
         await this.sync();
         return this.needingPermission.length === 0;
@@ -132,11 +142,13 @@ export class LinkedFolders {
 
     /**
      * Link a picked folder into the workspace folder `dir`, as dir/<its name>.
+     * `mode` is 'readwrite' (synced both ways) or 'read' (disk to workspace only).
      * Call from a click: the permission request needs one.
      */
-    async link(handle, dir) {
+    async link(handle, dir, mode = 'readwrite') {
+        if (mode !== 'read' && mode !== 'readwrite') throw new LinkError(`Unknown link mode ${mode}.`);
         if (!this.vm) throw new LinkError('The VM is still starting; link the folder once it runs.');
-        if (!(await this._granted(handle, true))) throw new LinkError('The browser was not given access to that folder.');
+        if (!(await this._granted(handle, true, mode))) throw new LinkError('The browser was not given access to that folder.');
         for (const l of this.links) {
             if (await handle.isSameEntry?.(l.handle)) throw new LinkError(`That folder is already linked at ${this.root}${l.path}.`);
         }
@@ -152,7 +164,7 @@ export class LinkedFolders {
         try {
             await this.vm.volumeMkdir(this.volume, path);
             this._emit('change');
-            return await this._firstCopy(handle, path);
+            return await this._firstCopy(handle, path, mode);
         } catch (e) {
             // Nothing half-copied stays behind.
             if (!this.at(path)) await this.vm.volumeDelete(this.volume, path).catch(() => {});
@@ -163,9 +175,9 @@ export class LinkedFolders {
         }
     }
 
-    async _firstCopy(handle, path) {
+    async _firstCopy(handle, path, mode) {
         const disk = await this._scanDisk(handle);
-        const link = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, path, name: handle.name, handle, base: {} };
+        const link = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, path, name: handle.name, handle, mode, base: {} };
         for (const rel of disk.dirs) {
             await this.vm.volumeMkdir(this.volume, `${path}/${rel}`);
             link.base[rel] = { dir: true };
@@ -200,6 +212,8 @@ export class LinkedFolders {
             try {
                 await this._syncOne(link);
             } catch (e) {
+                // Its folder went mid-pass: the next pass unlinks it, and says so.
+                if (e instanceof LinkError) continue;
                 if (e?.name === 'NotAllowedError' || e?.name === 'SecurityError') {
                     link.needsPermission = true;
                     this._emit('change');
@@ -208,6 +222,21 @@ export class LinkedFolders {
                 }
             }
         }
+    }
+
+    /**
+     * Unlink the folder at workspace `path`, leaving both copies as they are.
+     * Waits for a sync in progress, and no sync touches the link after.
+     */
+    unlink(path) {
+        const run = this._chain.then(async () => {
+            const link = this.at(path);
+            if (!link) return false;
+            await this._unlink(link);
+            return true;
+        });
+        this._chain = run.catch(() => {});
+        return run;
     }
 
     async _unlink(link) {
@@ -330,7 +359,17 @@ export class LinkedFolders {
         }
         const ws = await this._scanWs(link);
         const base = link.base;
+        const ro = link.mode === 'read';
+        // The guest runs while this pass awaits, so the folder can go (rm -rf) in
+        // the middle of it; its files would then read as deleted one by one.
+        // Checked again before anything is deleted on disk.
+        const stillLinked = async () => this.links.includes(link) && (await this._wsEntry(link.path))?.ino === link.rootIno;
+        const deleteDisk = async (rel) => {
+            if (!(await stillLinked())) throw new LinkError('the folder was removed from the workspace during the sync');
+            await this._deleteDisk(link, rel);
+        };
         const done = { pulled: 0, pushed: 0, deletedDisk: [], deletedWs: 0, conflicts: [] };
+        let touched = false;   // the baseline changed without a copy (read-only bookkeeping)
         const diskFiles = new Set(disk.files.keys());
         const wsFiles = new Set(ws.files.keys());
         const diskDirs = new Set(disk.dirs);
@@ -342,8 +381,10 @@ export class LinkedFolders {
             const b = base[rel]?.dir ? null : base[rel];
             const d = disk.files.get(rel);
             const w = ws.files.get(rel);
-            let dChanged = d ? !b || b.d !== diskSig(d) : !!b;
-            let wChanged = w ? !b || b.w !== wsSig(w) : !!b;
+            // A read-only link's workspace-only files have no disk side (d: null),
+            // and its files deleted in the workspace stay on disk (gone).
+            let dChanged = d ? !b || b.d !== diskSig(d) : !!(b && b.d);
+            let wChanged = w ? !b || b.w !== wsSig(w) : !!(b && !b.gone);
             if (!dChanged && !wChanged) continue;
 
             // A moved signature with the same content is no change.
@@ -356,7 +397,7 @@ export class LinkedFolders {
             if (w && wChanged) {
                 wBytes = await this._readWs(link, rel);
                 wHash = await hashOf(wBytes);
-                if (b && wHash === b.h) { b.w = wsSig(w); wChanged = false; }
+                if (b && wHash === b.h) { b.w = wsSig(w); b.local = false; wChanged = false; }
             }
             if (!dChanged && !wChanged) continue;
 
@@ -364,6 +405,54 @@ export class LinkedFolders {
                 base[rel] = { d: diskSig(d), w: await this._putWs(link, rel, dBytes), h: dHash };
                 wsFiles.add(rel); addParents(wsDirs, rel); done.pulled++;
             };
+            // Both changed: the disk wins; keep the workspace's version beside it
+            // (on disk too, unless the link is read-only).
+            const conflict = async () => {
+                let name = `${rel}${CONFLICT_SUFFIX}`;
+                for (let n = 2; diskFiles.has(name) || wsFiles.has(name); n++) name = `${rel}${CONFLICT_SUFFIX}-${n}`;
+                if (ro) {
+                    base[name] = { d: null, w: await this._putWs(link, name, wBytes), h: wHash, local: true };
+                } else {
+                    base[name] = { d: await this._writeDisk(link, name, wBytes), w: await this._putWs(link, name, wBytes), h: wHash };
+                    diskFiles.add(name);
+                }
+                wsFiles.add(name);
+                await pull();
+                done.pulled--;
+                done.conflicts.push(rel);
+            };
+
+            if (ro) {
+                touched = true;
+                const local = wChanged || !!b?.local;
+                if (dChanged && !local) {
+                    if (d) await pull();
+                    else if (w) { await this.vm.volumeDelete(this.volume, `${link.path}/${rel}`); wsFiles.delete(rel); delete base[rel]; done.deletedWs++; }
+                    else delete base[rel];
+                } else if (dChanged) {
+                    // Changed on disk, and the workspace has its own version.
+                    if (d && w) {
+                        wBytes ??= await this._readWs(link, rel);
+                        wHash ??= await hashOf(wBytes);
+                        if (wHash === dHash) base[rel] = { d: diskSig(d), w: wsSig(w), h: dHash };
+                        else await conflict();
+                    } else if (d) {
+                        await pull();     // deleted in the workspace, changed on disk: the change wins
+                    } else if (w) {
+                        base[rel] = { d: null, w: wsSig(w), h: wHash ?? b?.h, local: true };   // gone from disk: keep the workspace's
+                    } else {
+                        delete base[rel];
+                    }
+                } else if (w) {
+                    // Changed only in the workspace: it stays there.
+                    base[rel] = { d: b?.d ?? null, w: wsSig(w), h: b?.h ?? wHash, local: true };
+                } else if (b) {
+                    b.gone = true;        // deleted only in the workspace: the disk keeps it
+                    b.local = true;
+                    b.w = null;
+                }
+                continue;
+            }
             const push = async () => {
                 base[rel] = { d: await this._writeDisk(link, rel, wBytes), w: wsSig(w), h: wHash };
                 diskFiles.add(rel); addParents(diskDirs, rel); done.pushed++;
@@ -375,20 +464,10 @@ export class LinkedFolders {
                 else delete base[rel];
             } else if (wChanged && !dChanged) {
                 if (w) await push();
-                else { if (d) { await this._deleteDisk(link, rel); diskFiles.delete(rel); done.deletedDisk.push(rel); } delete base[rel]; }
+                else { if (d) { await deleteDisk(rel); diskFiles.delete(rel); done.deletedDisk.push(rel); } delete base[rel]; }
             } else if (d && w) {
-                if (dHash === wHash) {
-                    base[rel] = { d: diskSig(d), w: wsSig(w), h: dHash };
-                } else {
-                    // Both changed: the disk wins; keep the workspace's version beside it.
-                    let name = `${rel}${CONFLICT_SUFFIX}`;
-                    for (let n = 2; diskFiles.has(name) || wsFiles.has(name); n++) name = `${rel}${CONFLICT_SUFFIX}-${n}`;
-                    base[name] = { d: await this._writeDisk(link, name, wBytes), w: await this._putWs(link, name, wBytes), h: wHash };
-                    diskFiles.add(name); wsFiles.add(name);
-                    await pull();
-                    done.pulled--;
-                    done.conflicts.push(rel);
-                }
+                if (dHash === wHash) base[rel] = { d: diskSig(d), w: wsSig(w), h: dHash };
+                else await conflict();
             } else if (d) {
                 await pull();      // deleted in the workspace, changed on disk: keep the change
             } else if (w) {
@@ -407,9 +486,17 @@ export class LinkedFolders {
             const inW = wsDirs.has(rel);
             const was = !!base[rel]?.dir;
             if (inD && inW) { base[rel] = { dir: true }; continue; }
+            if (ro) {
+                // Only the workspace side changes: new disk folders appear there,
+                // folders gone from disk go if the workspace has nothing of its own in them.
+                if (inD && !was) { await this.vm.volumeMkdir(this.volume, `${link.path}/${rel}`); wsDirs.add(rel); base[rel] = { dir: true }; }
+                else if (inW && was && !holds(wsFiles, wsDirs, rel)) { await this.vm.volumeDelete(this.volume, `${link.path}/${rel}`); wsDirs.delete(rel); delete base[rel]; }
+                else if (!inD && !inW) delete base[rel];
+                continue;
+            }
             if (inD) {
                 if (was && !holds(diskFiles, diskDirs, rel)) {
-                    await this._deleteDisk(link, rel); diskDirs.delete(rel); delete base[rel]; done.deletedDisk.push(`${rel}/`);
+                    await deleteDisk(rel); diskDirs.delete(rel); delete base[rel]; done.deletedDisk.push(`${rel}/`);
                 } else {
                     await this.vm.volumeMkdir(this.volume, `${link.path}/${rel}`); wsDirs.add(rel); base[rel] = { dir: true };
                 }
@@ -425,15 +512,15 @@ export class LinkedFolders {
         }
 
         const changed = done.pulled || done.pushed || done.deletedDisk.length || done.deletedWs || done.conflicts.length;
+        if (touched || changed) await this._save(link);
         if (!changed) return;
-        await this._save(link);
         if (done.deletedDisk.length) {
             const list = done.deletedDisk.slice(0, 5).join(', ') + (done.deletedDisk.length > 5 ? `, and ${done.deletedDisk.length - 5} more` : '');
             this._emit('notice', `Deleted from ${link.name} on your computer, as in ${this.root}${link.path}: ${list}.`, 'note');
         }
         for (const rel of done.conflicts) {
             this._emit('notice', `${rel} in ${this.root}${link.path} changed both on your computer and in the workspace. `
-                + `The computer's version is in place; the workspace's is saved beside it as ${baseOf(rel)}${CONFLICT_SUFFIX}.`, 'note');
+                + `The computer's version is in place; the workspace's is saved beside it as ${baseOf(rel)}${CONFLICT_SUFFIX}${link.mode === 'read' ? ' (in the workspace only)' : ''}.`, 'note');
         }
     }
 }

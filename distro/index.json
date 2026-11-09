@@ -1,6 +1,11 @@
 {
   "distros": [
     {
+      "name": "alpine-3.20-riscv64",
+      "label": "Alpine 3.20 (riscv64)",
+      "arch": "riscv64"
+    },
+    {
       "name": "alpine-3.20-x86",
       "label": "Alpine 3.20 (x86)",
       "arch": "x86"
@@ -9,11 +14,6 @@
       "name": "debian-12-x86",
       "label": "Debian 12 (x86)",
       "arch": "x86"
-    },
-    {
-      "name": "alpine-3.20-riscv64",
-      "label": "Alpine 3.20 (riscv64)",
-      "arch": "riscv64"
     },
     {
       "name": "debian-13-riscv64",

@@ -39,6 +39,10 @@
   #optSystem { width: 100%; min-height: 220px; resize: vertical; font: 12px/1.4 ui-monospace, monospace; }
   .sysbar { display: flex; gap: 8px; margin-top: 6px; }
   .sysbar button { padding: 2px 8px; font-size: 12px; }
+  #systemVars { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; margin: 0; font-size: 12px; }
+  #systemVars dt button { padding: 1px 6px; font: 12px ui-monospace, monospace; }
+  #systemVars dd { margin: 0; align-self: center; color: #8a93a2; overflow-wrap: anywhere; }
+  #systemVars dd code { color: #e6e6e6; }
   #contextStats { margin-top: 8px; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; font-size: 12px; }
   #contextStats dt { color: #8a93a2; }
   #contextStats dd { margin: 0; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
@@ -47,7 +51,7 @@
   #chatView, #settingsPane, #logPane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   #settingsPane, #vmPane { overflow: auto; padding: 4px 14px 14px; }
   #settingsPane h2, #vmPane h2 { display: flex; gap: 8px; align-items: baseline; margin: 14px 0 4px; font-size: 13px; }
-  #settingsPane h2 button { margin-left: auto; padding: 2px 8px; font-size: 12px; }
+  #settingsPane h2 button, #vmPane h2 button { margin-left: auto; padding: 2px 8px; font-size: 12px; }
   #settingsPane .hint, #vmPane .hint { margin: 0 0 8px; color: #8a93a2; font-size: 12px; font-weight: 400; }
   #settingsPane code { font: 12px ui-monospace, monospace; color: #e6e6e6; }
   #toolToggles, .toggles { display: flex; flex-direction: column; gap: 6px; }
@@ -69,6 +73,11 @@
   #vmStats dt { color: #8a93a2; }
   #vmStats dd { margin: 0; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
   #vmPane select { max-width: 100%; }
+  #dataStats { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; margin: 0 0 8px; font-size: 12px; }
+  #dataStats dt { color: #8a93a2; }
+  #dataStats dd { margin: 0; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+  .databar { flex-wrap: wrap; }
+  .databar button.danger { color: #e88; }
   /* The log of exchanges */
   #logBar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid #2a2e37; font-size: 12px; color: #8a93a2; }
   #logBar button { padding: 2px 8px; font-size: 12px; }
@@ -94,6 +103,9 @@
   #log.hide-thinking details.thinking { display: none; }
   #log { flex: 1; overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
   .msg { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .mstat { display: block; margin-top: 4px; color: #8a93a2; font: 11px system-ui, sans-serif; white-space: normal; user-select: none; }
+  .msg.user .mstat { text-align: right; color: #9fb0c8; }
+  details.thinking > summary .mstat { display: inline; margin: 0 0 0 8px; }
   .msg.user { align-self: flex-end; max-width: 85%; background: #26364f; padding: 7px 11px; border-radius: 10px; }
   .msg.note { color: #8a93a2; font-size: 12px; }
   .msg.problem { color: #e88; font-size: 12px; }
@@ -120,6 +132,17 @@
   #consolePane, #filesPane, #skillsPane, #vmPane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   #vmPane { display: block; }
   .file .spinner { float: none; margin: 0; width: 11px; height: 11px; }
+  #filesStatus { display: flex; gap: 6px; align-items: center; color: #8a93a2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+  #filesStatus .spinner { float: none; margin: 0; width: 10px; height: 10px; flex-shrink: 0; }
+  .file .fsave { padding: 0 5px; font-size: 11px; line-height: 16px; background: none; border: 1px solid transparent; color: #8a93a2; }
+  .file .fsave:hover, .file .fsave:focus-visible { border-color: #3a3f4a; color: #e6e6e6; }
+  dialog.choice { max-width: 440px; padding: 14px 16px; border: 1px solid #2a2e37; border-radius: 8px; background: #16191e; color: #e6e6e6; font: 13px/1.45 system-ui, sans-serif; }
+  dialog.choice::backdrop { background: rgba(0, 0, 0, .5); }
+  dialog.choice h3 { margin: 0 0 6px; font-size: 14px; }
+  dialog.choice p { margin: 0 0 12px; color: #b4bcc8; }
+  dialog.choice .choices { display: flex; flex-direction: column; gap: 8px; }
+  dialog.choice .choices button { text-align: left; padding: 8px 10px; }
+  dialog.choice .choices button small { display: block; color: #8a93a2; font-size: 12px; }
   #skillsBar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid #2a2e37; font-size: 12px; color: #8a93a2; }
   #skillsHint { flex: 1; min-width: 0; }
   #skillsHint code { font: 12px ui-monospace, monospace; color: #e6e6e6; }
@@ -142,11 +165,11 @@
   .sfile .meta { color: #8a93a2; font-size: 11px; white-space: nowrap; }
   #skillFileBody { margin: 0; padding: 8px 12px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: #0e1013; font: 12px/1.35 ui-monospace, monospace; }
   #filesBar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid #2a2e37; font-size: 12px; }
-  #crumbs { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 12px ui-monospace, monospace; }
+  #crumbs { flex: 1; min-width: 5em; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 12px ui-monospace, monospace; }
   #crumbs a { color: #7fb4ff; cursor: pointer; text-decoration: none; }
   #crumbs a:hover { text-decoration: underline; }
   #filesList { flex: 1; min-height: 0; overflow: auto; padding: 4px 0; font: 12px/1.35 ui-monospace, monospace; }
-  .file { display: grid; grid-template-columns: 16px 18px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 4px 12px; cursor: pointer; }
+  .file { display: grid; grid-template-columns: 16px 18px minmax(0, 1fr) auto auto 24px; gap: 10px; align-items: center; padding: 4px 12px; cursor: pointer; }
   .file:hover, .file:focus-visible { background: #1f232b; outline: none; }
   .file input[type=checkbox], #filesAll { width: 14px; height: 14px; margin: 0; padding: 0; accent-color: #7fb4ff; cursor: pointer; flex-shrink: 0; }
   #filesDeleteSelected { color: #e88; }
@@ -227,6 +250,10 @@
         <button id="systemSave" disabled>Save</button>
         <button id="systemReset" title="Go back to the built-in prompt">Reset to default</button>
       </div>
+      <p class="hint" style="margin-top:8px">Variables: write one in the prompt and the model gets its value in its
+        place, filled in at every message. Click a name to insert it at the cursor. A name not in this list is sent
+        as written.</p>
+      <dl id="systemVars"></dl>
       <h2>Context</h2>
       <p class="hint">How full the model's context window is, and compaction: the conversation so far is summarized
         by the same model and the summary takes its place. Files in the VM are not affected.</p>
@@ -275,12 +302,16 @@
       <div id="filesBar">
         <input id="filesAll" type="checkbox" aria-label="Select everything in this folder" title="Select everything in this folder">
         <nav id="crumbs" aria-label="Folder"></nav>
-        <button id="filesDeleteSelected" hidden title="Delete the ticked files and folders">Delete</button>
+        <span id="filesStatus" role="status" hidden></span>
+        <button id="filesDownloadSelected" hidden>Download</button>
+        <button id="filesDeleteSelected" hidden title="Delete the ticked files and folders (linked folders are unlinked)">Delete</button>
         <button id="filesReconnect" hidden title="Give the browser access again to the linked folders on your computer">Reconnect</button>
         <button id="filesLink" title="Link a folder on your computer into this folder: its files are copied here and kept in sync both ways">Link folder</button>
         <button id="filesRefresh" title="List the folder again">Refresh</button>
         <button id="filesUpload" title="Copy files from this computer into the folder (or drop files and folders here)">Upload</button>
+        <button id="filesUploadDir" title="Copy a folder from this computer into the folder (or drop it here)">Upload folder</button>
         <input id="filesPick" type="file" multiple hidden>
+        <input id="filesPickDir" type="file" webkitdirectory multiple hidden>
         <input id="filesLinkPick" type="file" webkitdirectory multiple hidden>
       </div>
       <div id="filesList" role="list"></div>
@@ -330,6 +361,17 @@
       <div class="sysbar">
         <button id="saveState" disabled title="Save the running VM so that reloading the page resumes it">Save state</button>
         <button id="freshBoot" title="Forget the saved state and boot the VM from scratch">Fresh boot</button>
+      </div>
+      <h2>Data <button id="dataRefresh" title="Count again">Refresh</button></h2>
+      <p class="hint">What this page keeps in this browser. Each button asks first; none of them touches the folders
+        on your computer that are linked into the workspace (they are only unlinked).</p>
+      <dl id="dataStats"></dl>
+      <div class="sysbar databar">
+        <button id="dataWorkspace" title="Delete everything in /workspace, and unlink its linked folders">Empty workspace</button>
+        <button id="dataSkills" title="Delete every imported skill">Delete skills</button>
+        <button id="dataStates" title="Delete the saved state of every machine">Delete saved states</button>
+        <button id="dataSettings" title="Put the settings and the VM choice back to their defaults, and reload">Reset settings</button>
+        <button id="dataEverything" class="danger" title="Delete all of the above, and the saved connection with its API key, and reload">Delete everything</button>
       </div>
     </div>
   </section>
@@ -434,6 +476,25 @@ function addMessage(kind, text = '') {
     return el;
 }
 
+/* When a message was sent or finished: the time today, else the date too. */
+function stampText(ms) {
+    const d = new Date(ms);
+    const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return d.toDateString() === new Date().toDateString() ? time : `${d.toLocaleDateString()} ${time}`;
+}
+/* The small stats line under a chat message (or in a thinking box's summary). */
+function setMessageStat(el, text, title) {
+    let s = el.querySelector(':scope > .mstat');
+    if (!s) {
+        s = document.createElement('span');
+        s.className = 'mstat';
+        el.append(s);
+    }
+    s.textContent = text;
+    s.title = title;
+}
+const tokensPerSecond = (tokens, ms) => (ms > 0 ? tokens / (ms / 1000) : 0);
+
 /* A problem with buttons under it: [label, onclick] pairs. Each runs once. */
 function addProblem(text, actions = []) {
     const el = addMessage('problem', text);
@@ -510,14 +571,25 @@ function uiHooks() {
     let thinkEl = null;
     let compactingEl = null;   // the "compacting…" note while a summary is written
     const cards = new Map();
+    // One model reply (a step): when it was asked for, its first streamed token,
+    // and where its stats go once the provider reports its usage.
+    let step = null;
+    const firstToken = () => { if (step && !step.first) step.first = Date.now(); };
     return {
-        stepStart() { textEl = null; thinkEl = null; },
+        stepStart() { textEl = null; thinkEl = null; step = { start: Date.now(), first: 0, textEl: null, thinkEl: null, pending: null }; },
         text(t) {
-            textEl ||= addMessage('assistant');
-            textEl.append(t);
+            firstToken();
+            if (!textEl) {
+                textEl = addMessage('assistant');
+                if (step) step.textEl = textEl;
+            }
+            // Before the stats line, if a later chunk of the same reply arrives.
+            const s = textEl.querySelector(':scope > .mstat');
+            if (s) s.before(t); else textEl.append(t);
             follow();
         },
         thinking(t) {
+            firstToken();
             if (!thinkEl) {
                 const box = document.createElement('details');
                 box.className = 'thinking';
@@ -527,10 +599,17 @@ function uiHooks() {
                 box.append(s, thinkEl);
                 logAppend(box);
                 follow();
+                if (step) step.thinkEl = box;
             }
             thinkEl.append(t);
         },
-        toolStart(call) { textEl = null; cards.set(call.id, addToolCard(call)); },
+        toolStart(call) {
+            textEl = null;
+            const c = addToolCard(call);
+            cards.set(call.id, c);
+            // A reply with only tool calls: its stats go on the first card's tooltip.
+            if (step?.pending) { c.card.title = step.pending; step.pending = null; }
+        },
         toolOutput(call, t) {
             const c = cards.get(call.id);
             c.output.append(t);
@@ -558,7 +637,26 @@ function uiHooks() {
         },
         retrying(why) { addMessage('note', `↻ ${why}`); },
         injected(item) { queued.get(item.id)?.deliver(); },
-        usage(u, kind) { addUsage('main', u, kind); },
+        usage(u, kind) {
+            addUsage('main', u, kind);
+            if (kind === 'compaction' || !step) return;
+            // Speed: output tokens (thinking included) over the time they streamed,
+            // from the first token; the wait before it is shown apart.
+            const end = Date.now();
+            const genMs = end - (step.first || step.start);
+            const out = u.output || 0;
+            const tps = tokensPerSecond(out, genMs);
+            const text = `${stampText(end)} · ${out.toLocaleString()} tokens${tps ? ` · ${tps.toFixed(tps < 10 ? 1 : 0)} tok/s` : ''}`;
+            const title = `Finished ${new Date(end).toLocaleString()}\n`
+                + (step.first ? `First token after ${seconds(step.first - step.start)}, ` : '')
+                + `${out.toLocaleString()} output tokens${Number.isInteger(u.thinking) ? ` (${u.thinking.toLocaleString()} thinking)` : ''} `
+                + `in ${seconds(genMs)}: ${tps.toFixed(1)} tokens/s\n`
+                + `Input ${(u.input || 0).toLocaleString()}, cache read ${(u.cacheRead || 0).toLocaleString()}, `
+                + `cache write ${(u.cacheWrite || 0).toLocaleString()} tokens`;
+            if (step.textEl) setMessageStat(step.textEl, text, title);
+            else if (step.thinkEl) setMessageStat(step.thinkEl.querySelector('summary'), text, title);
+            else step.pending = `${text}\n${title}`;
+        },
         context() { renderContext(); },
         compactStart() {
             textEl = null;
@@ -772,6 +870,12 @@ function promptVars() {
     const d = distroInfo(m.distro);
     return { ARCH: d.arch, OS_NAME: (d.label || d.name).replace(/\s*\([^)]*\)$/, '') };
 }
+/* What each variable is, for the list under the Settings editor. Every name
+ * promptVars() returns needs a line here. */
+const PROMPT_VAR_HELP = {
+    ARCH: 'the VM\'s processor, from the system chosen in the VM tab',
+    OS_NAME: 'the VM\'s system (distribution and version)',
+};
 /* The system prompt in use, placeholders filled in. */
 const currentSystem = () => renderPrompt(systemTemplate(), promptVars());
 function saveSettings() {
@@ -907,6 +1011,35 @@ $('optThinking').onchange = () => {
 };
 renderSettings();
 
+/* The variables list under the system prompt editor, with each one's current
+ * value. Re-rendered when the Settings tab opens and once the machine is known. */
+function renderPromptVars() {
+    const vars = promptVars();
+    const dl = $('systemVars');
+    dl.replaceChildren();
+    for (const [name, help] of Object.entries(PROMPT_VAR_HELP)) {
+        const token = `{{VAR_${name}}}`;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = token;
+        btn.title = 'Insert at the cursor';
+        btn.onclick = () => {
+            const ta = $('optSystem');
+            ta.focus();
+            ta.setRangeText(token, ta.selectionStart, ta.selectionEnd, 'end');
+            systemEditorState();
+        };
+        const dt = document.createElement('dt');
+        dt.append(btn);
+        const now = document.createElement('code');
+        now.textContent = vars[name] || '';
+        const dd = document.createElement('dd');
+        dd.append(`${help}; now `, now);
+        dl.append(dt, dd);
+    }
+}
+renderPromptVars();
+
 const CHAT_TABS = { chat: ['tabChat', 'chatView'], settings: ['tabSettings', 'settingsPane'], log: ['tabLog', 'logPane'] };
 function showChatTab(tab) {
     for (const [name, [tabId, paneId]] of Object.entries(CHAT_TABS)) {
@@ -915,6 +1048,7 @@ function showChatTab(tab) {
     }
     if (tab === 'chat') $('prompt').focus();
     if (tab === 'log') renderLog();
+    if (tab === 'settings') renderPromptVars();
 }
 $('tabChat').onclick = () => showChatTab('chat');
 $('tabSettings').onclick = () => showChatTab('settings');
@@ -1429,6 +1563,7 @@ async function expandText(text) {
  * the chat until the agent takes it, at its next step. */
 const queued = new Map();
 function addQueued(id, text) {
+    const sent = Date.now();
     const el = document.createElement('div');
     el.className = 'msg user queued';
     el.append(text);
@@ -1456,6 +1591,9 @@ function addQueued(id, text) {
         deliver() {
             note.remove();
             el.classList.remove('queued');
+            const now = Date.now();
+            setMessageStat(el, stampText(sent), `Sent ${new Date(sent).toLocaleString()}, while the agent worked; `
+                + `it took the message at ${new Date(now).toLocaleTimeString()}`);
             logAppend(el);
             queued.delete(id);
             follow();
@@ -1520,7 +1658,8 @@ async function runTurn(work) {
 }
 
 async function startTurn(shown, expanded = null) {
-    addMessage('user', shown);
+    const sent = Date.now();
+    setMessageStat(addMessage('user', shown), stampText(sent), `Sent ${new Date(sent).toLocaleString()}`);
     await runTurn(async (signal) => {
         // The guest can add or edit skills too, so look again before each turn.
         await skills.refresh().catch(() => {});
@@ -1581,7 +1720,7 @@ let liveVM = null;
  * override it for one load. A distro name that isn't a plain folder name is
  * ignored, so a link can't point outside distro/. distro/index.json (serve.mjs,
  * scripts/build.mjs) lists the distros; without it only the default is offered. */
-const DEFAULT_DISTRO = 'alpine-3.20-x86';
+const DEFAULT_DISTRO = 'alpine-3.20-riscv64';
 const DISTRO_NAME = /^[\w-][\w.-]*$/;
 const MEMORY_SIZES = [128, 256, 512];
 const DEFAULT_MEMORY = 256;
@@ -1618,9 +1757,10 @@ let machine = null;      // chooseMachine(), at startVM
 let VM_OPTIONS = null;   // vmOptions(machine)
 const vmState = { how: null, seconds: null, saved: null };   // for the VM tab
 
-/* Each machine keeps its own saved state. The default keeps the key it always had. */
+/* Each machine keeps its own saved state. alpine-3.20-x86, the default before
+ * alpine-3.20-riscv64, keeps the key it always had, so its saved states resume. */
 const snapshotKey = () => (machine.custom ? 'tinyemu-agent-vm:custom'
-    : machine.distro === DEFAULT_DISTRO ? 'tinyemu-agent-vm' : `tinyemu-agent-vm:${machine.distro}`);
+    : machine.distro === 'alpine-3.20-x86' ? 'tinyemu-agent-vm' : `tinyemu-agent-vm:${machine.distro}`);
 
 const vmOptions = ({ distro, memoryMB, custom }) => ({
     // A distro's guest.cfg names its kernel and disk relative to itself, so the
@@ -1735,10 +1875,13 @@ const files = new FileBrowser({
         previewDownload: $('previewDownload'), previewDelete: $('previewDelete'),
         previewClose: $('previewClose'), pane: $('filesPane'),
         selectAll: $('filesAll'), deleteSelected: $('filesDeleteSelected'),
+        downloadSelected: $('filesDownloadSelected'), uploadDir: $('filesUploadDir'), pickDir: $('filesPickDir'),
+        status: $('filesStatus'),
     },
     volume: WORKSPACE_VOLUME,
     root: WORKSPACE,
     onProblem: (text) => addMessage('problem', text),
+    onNote: (text) => addMessage('note', text),
     links,
 });
 
@@ -1774,6 +1917,7 @@ async function copyFolderIn(picked, dir = files.path) {
     const bytes = picked.reduce((n, f) => n + f.size, 0);
     files.busy.set(path, 'copying…');
     $('filesLink').disabled = true;
+    const task = files.task(`Copying ${top} in…`);
     try {
         await liveVM.volumeMkdir(WORKSPACE_VOLUME, path);
         await files.refresh();
@@ -1784,37 +1928,79 @@ async function copyFolderIn(picked, dir = files.path) {
     } catch (e) {
         addMessage('problem', `Could not copy ${top}: ${e.message}`);
     } finally {
+        task.done();
         files.busy.delete(path);
         $('filesLink').disabled = false;
         files.refresh();
     }
 }
 
+/* A modal choice: resolves with the picked option's value, or null (Esc, Cancel).
+ * Its button click is a user activation, which the folder picker needs. */
+function choose(title, text, options) {
+    return new Promise((resolve) => {
+        const dlg = document.createElement('dialog');
+        dlg.className = 'choice';
+        const h = document.createElement('h3');
+        h.textContent = title;
+        const p = document.createElement('p');
+        p.textContent = text;
+        const box = document.createElement('div');
+        box.className = 'choices';
+        const finish = (v) => { dlg.close(); dlg.remove(); resolve(v); };
+        for (const o of options) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.append(o.label);
+            if (o.hint) { const s = document.createElement('small'); s.textContent = o.hint; b.append(s); }
+            b.onclick = () => finish(o.value);
+            box.append(b);
+        }
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.textContent = 'Cancel';
+        cancel.onclick = () => finish(null);
+        box.append(cancel);
+        dlg.append(h, p, box);
+        dlg.addEventListener('cancel', (e) => { e.preventDefault(); finish(null); });
+        document.body.append(dlg);
+        dlg.showModal();
+    });
+}
+
 $('filesLink').onclick = async () => {
     if (!canLink) { $('filesLinkPick').click(); return; }
+    const mode = await choose('Link a folder', 'Its files are copied into the workspace and kept in sync. '
+        + 'Which way should changes go?', [
+        { value: 'read', label: 'Read-only', hint: 'Changes on your computer come into the workspace; nothing in the workspace is ever written back.' },
+        { value: 'readwrite', label: 'Read-write', hint: 'Changes go both ways: edits and deletions in the workspace happen on your computer too.' },
+    ]);
+    if (!mode) return;
     let handle;
     try {
-        handle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'tinyemu-agent-link' });
+        handle = await window.showDirectoryPicker({ mode, id: 'tinyemu-agent-link' });
     } catch (e) {
         if (e?.name !== 'AbortError') addMessage('problem', `Could not open the folder picker: ${e.message}`);
         return;
     }
-    await linkFolder(handle);
+    await linkFolder(handle, files.path, mode);
 };
 
-async function linkFolder(handle, dir = files.path) {
+async function linkFolder(handle, dir = files.path, mode = 'readwrite') {
     $('filesLink').disabled = true;
-    const old = $('filesLink').textContent;
-    $('filesLink').textContent = 'Linking…';
+    const task = files.task(`Linking ${handle.name}…`);
     try {
-        const r = await links.link(handle, dir);
-        addMessage('note', `Linked ${handle.name} from your computer at ${WORKSPACE}${r.path} (${r.files} files, `
-            + `${formatSize(r.bytes)}). Changes on either side are synced at each tool call, message and refresh; `
-            + 'deleting a file there deletes it on your computer too. Delete the folder in the workspace to unlink it.');
+        const r = await links.link(handle, dir, mode);
+        addMessage('note', `Linked ${handle.name} from your computer at ${WORKSPACE}${r.path}, ${mode === 'read' ? 'read-only' : 'read-write'} `
+            + `(${r.files} files, ${formatSize(r.bytes)}). `
+            + (mode === 'read'
+                ? 'Changes on your computer come in at each tool call, message and refresh; changes in the workspace stay there. '
+                : 'Changes on either side are synced at each tool call, message and refresh; deleting a file there deletes it on your computer too. ')
+            + 'Delete the folder in the workspace to unlink it: its files stay, and the folder on your computer is untouched.');
     } catch (e) {
         addMessage('problem', e instanceof LinkError ? e.message : `Could not link ${handle.name}: ${e.message}`);
     } finally {
-        $('filesLink').textContent = old;
+        task.done();
         $('filesLink').disabled = false;
         files.refresh();
     }
@@ -1854,7 +2040,7 @@ function showTab(tab) {
     }
     if (tab === 'files') files.refresh();
     else if (tab === 'skills') skills.refresh().then(renderSkills, () => {});
-    else if (tab === 'vm') renderVMStats();
+    else if (tab === 'vm') { renderVMStats(); renderDataStats(); }
     else $('term').scrollTop = $('term').scrollHeight;
 }
 $('tabConsole').onclick = () => showTab('console');
@@ -2118,6 +2304,7 @@ async function startVM() {
     machine = chooseMachine();
     VM_OPTIONS = vmOptions(machine);
     fillVMTab();
+    renderPromptVars();
     renderVMStats();
 
     if (!params.has('nosnapshot')) {
@@ -2170,7 +2357,7 @@ async function startVM() {
 
     // For console poking and for driving the page from tests.
     window.agentDemo = {
-        vm, bridge, tools, skills, links, linkFolder, copyFolderIn, settings, usage, useProvider, Agent, saveState, pageFiles,
+        vm, bridge, tools, skills, links, linkFolder, copyFolderIn, files, settings, usage, useProvider, Agent, saveState, pageFiles,
         exchanges: () => exchanges, toolStats: () => toolStats, machine,
     };
 
@@ -2194,6 +2381,154 @@ async function checkMounts(bridge) {
 }
 
 $('saveState').onclick = () => saveState();
+
+/* ---- the VM tab's Data section --------------------------------------------- */
+
+/* A whole volume's files and bytes (folders not counted). */
+async function volumeTotals(volume) {
+    let files = 0, bytes = 0;
+    const walk = async (dir) => {
+        for (const e of (await liveVM.volumeList(volume, dir)) || []) {
+            const path = dir === '/' ? `/${e.name}` : `${dir}/${e.name}`;
+            if (e.dir) await walk(path);
+            else { files++; bytes += e.size; }
+        }
+    };
+    await walk('/');
+    return { files, bytes };
+}
+
+async function renderDataStats() {
+    const rows = [];
+    const plural = (n, one, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
+    if (liveVM) {
+        const ws = await volumeTotals(WORKSPACE_VOLUME).catch(() => null);
+        if (ws) {
+            rows.push(['Workspace', `${plural(ws.files, 'file')}, ${formatSize(ws.bytes)}`
+                + (links.links.length ? ` · ${plural(links.links.length, 'linked folder')}` : '')]);
+        }
+    } else {
+        rows.push(['Workspace', 'counted once the VM runs']);
+    }
+    rows.push(['Skills', plural(skills.list().length, 'skill')]);
+    const states = await SnapshotStore.list().catch(() => []);
+    const mine = machine ? snapshotKey() : null;
+    rows.push(['Saved states', states.length
+        ? `${plural(states.length, 'machine')}, ${formatSize(states.reduce((n, s) => n + s.size, 0))}`
+          + (states.some((s) => s.key === mine) ? ' (this one included)' : '')
+        : 'none']);
+    rows.push(['Saved connection', savedConnection.load() ? 'yes, with its API key' : 'none']);
+    try {
+        const est = await navigator.storage?.estimate?.();
+        if (est?.usage != null) rows.push(['Browser storage', `${formatSize(est.usage)} used by this site${est.quota ? ` of ${formatSize(est.quota)} allowed` : ''}`]);
+    } catch { /* no estimate */ }
+    const dl = $('dataStats');
+    dl.replaceChildren();
+    for (const [k, v] of rows) {
+        const dt = document.createElement('dt');
+        dt.textContent = k;
+        const dd = document.createElement('dd');
+        dd.textContent = v;
+        dl.append(dt, dd);
+    }
+    $('dataWorkspace').disabled = !liveVM;
+    $('dataSkills').disabled = !liveVM || !skills.list().length;
+    $('dataStates').disabled = !states.length;
+}
+
+/* The data buttons change what a running turn may be using, so not during one. */
+function dataBusy() {
+    if (!running) return false;
+    addMessage('problem', 'The agent is working; stop it first, then manage the data.');
+    return true;
+}
+
+/* Unlink every linked folder (the folders on the computer stay as they are), then
+ * delete everything in the workspace. */
+async function emptyWorkspace() {
+    for (const l of [...links.links]) await links.unlink(l.path);
+    for (const e of (await liveVM.volumeList(WORKSPACE_VOLUME, '/')) || []) await liveVM.volumeDelete(WORKSPACE_VOLUME, `/${e.name}`);
+    await liveVM.volumeFlush(WORKSPACE_VOLUME).catch(() => {});
+}
+async function deleteSkills() {
+    for (const e of (await liveVM.volumeList(SKILLS_VOLUME, '/')) || []) await liveVM.volumeDelete(SKILLS_VOLUME, `/${e.name}`);
+    await liveVM.volumeFlush(SKILLS_VOLUME).catch(() => {});
+    await skills.refresh().catch(() => {});
+}
+/* Local storage keys of this page (settings, VM choice, card state, connection). */
+const PAGE_KEYS = [SETTINGS, VM_PREFS, CARDS_OPEN];
+
+async function dataAction(button, label, fn) {
+    if (dataBusy()) return;
+    const old = button.textContent;
+    button.disabled = true;
+    button.textContent = label;
+    try {
+        await fn();
+    } catch (e) {
+        addMessage('problem', `${old} failed: ${e.message}`);
+    } finally {
+        button.textContent = old;
+        button.disabled = false;
+        renderDataStats();
+    }
+}
+
+$('dataRefresh').onclick = () => renderDataStats();
+$('dataWorkspace').onclick = () => {
+    if (!confirm(`Delete everything in ${WORKSPACE}? This can't be undone.`
+        + (links.links.length ? `\n\nIts ${links.links.length === 1 ? 'linked folder is' : `${links.links.length} linked folders are`} `
+            + 'unlinked first: the folders on your computer stay as they are.' : ''))) return;
+    dataAction($('dataWorkspace'), 'Emptying…', async () => {
+        await emptyWorkspace();
+        files.open('/');
+        addMessage('note', `Emptied ${WORKSPACE}.`);
+    });
+};
+$('dataSkills').onclick = () => {
+    if (!confirm(`Delete all ${skills.list().length} skills? This can't be undone.`)) return;
+    dataAction($('dataSkills'), 'Deleting…', async () => {
+        await deleteSkills();
+        addMessage('note', 'Deleted all skills.');
+    });
+};
+$('dataStates').onclick = () => {
+    if (!confirm('Delete the saved state of every machine? The VM running now carries on; the next reload boots from '
+        + 'scratch, which takes longer.')) return;
+    dataAction($('dataStates'), 'Deleting…', async () => {
+        await SnapshotStore.clear();
+        vmState.saved = null;
+        renderVMStats();
+        addMessage('note', 'Deleted the saved states. Press Save state to save the running VM again.');
+    });
+};
+$('dataSettings').onclick = () => {
+    if (!confirm('Put the settings (Settings tab: tools, features, system prompt, context) and the VM tab\'s machine '
+        + 'choice back to their defaults, and reload the page? The saved connection, the workspace, skills and saved '
+        + 'states are kept. The chat starts over.')) return;
+    dataAction($('dataSettings'), 'Resetting…', async () => {
+        for (const k of PAGE_KEYS) { try { localStorage.removeItem(k); } catch { /* none */ } }
+        await liveVM?.flush().catch(() => {});
+        location.reload();
+    });
+};
+$('dataEverything').onclick = () => {
+    if (!confirm('Delete everything this page keeps in this browser: the workspace, skills, saved states, settings, '
+        + 'the VM choice, and the saved connection with its API key? Then the page reloads and the VM boots from scratch. '
+        + 'Linked folders are only unlinked: the folders on your computer stay as they are. This can\'t be undone.')) return;
+    dataAction($('dataEverything'), 'Deleting…', async () => {
+        if (liveVM) {
+            await emptyWorkspace();
+            await deleteSkills();
+        }
+        for (const l of [...links.links]) await links.unlink(l.path);
+        await SnapshotStore.clear();
+        savedConnection.clear();
+        for (const k of PAGE_KEYS) { try { localStorage.removeItem(k); } catch { /* none */ } }
+        await liveVM?.flush().catch(() => {});
+        location.reload();
+    });
+};
 $('freshBoot').onclick = async () => {
     if (!confirm('Forget the saved state of this machine and reload the page to boot it from scratch? What runs in the VM '
         + 'now stops; the workspace and skills are kept, and the chat starts over.')) return;

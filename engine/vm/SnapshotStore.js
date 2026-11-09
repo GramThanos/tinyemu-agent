@@ -107,4 +107,18 @@ export const SnapshotStore = {
     delete(key) {
         return tx('readwrite', (s) => s.delete(key)).catch(() => {});
     },
+
+    /** Every saved state: [{ key, savedAt, size }] (size: the blob's bytes). */
+    async list() {
+        const [keys, recs] = await Promise.all([
+            tx('readonly', (s) => s.getAllKeys()).catch(() => []),
+            tx('readonly', (s) => s.getAll()).catch(() => []),
+        ]);
+        return keys.map((key, i) => ({ key: String(key), savedAt: recs[i]?.savedAt ?? 0, size: recs[i]?.blob?.size ?? 0 }));
+    },
+
+    /** Delete every saved state. */
+    clear() {
+        return tx('readwrite', (s) => s.clear()).catch(() => {});
+    },
 };
