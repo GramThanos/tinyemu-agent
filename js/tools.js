@@ -252,6 +252,26 @@ export function shellEnv(text) {
         .join('\n').replace(/\n*$/, '\n');
 }
 
+/** A valid environment variable name. */
+export const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * A shell's `env` script with the user's variables (`vars`, name -> value) set
+ * last, so they hold at the start of every command. Exports of names in
+ * `managed` (every name the user has set this session, `vars`' included) are
+ * dropped from the shell's own first: a variable the user changed or removed
+ * mustn't come back from what an earlier command exported.
+ */
+export function withUserEnv(shellScript, vars, managed) {
+    const kept = (shellScript || '').split(/\n(?=(?:export|declare -x) )/).filter((entry) => {
+        const m = entry.match(/^(?:export|declare -x) ([A-Za-z_]\w*)/);
+        return m && !managed.has(m[1]);
+    });
+    const mine = Object.entries(vars).filter(([k]) => ENV_NAME.test(k)).map(([k, v]) => `export ${k}=${shQuote(v)}`);
+    const out = [...kept, ...mine].join('\n');
+    return out ? `${out.replace(/\n*$/, '')}\n` : null;
+}
+
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write']);
 
 /**
@@ -287,13 +307,24 @@ const FILE_TOOLS = new Set(['Read', 'Edit', 'Write']);
  *
  * `sync()`, if given, is awaited before and after every call that touches the VM
  * (linked folders are brought up to date then); its failures are ignored.
+ *
+ * `env()` gives the user's environment variables (name -> value), read at each
+ * Bash call and set in every shell after its own exports (see withUserEnv).
  * @param {{exec:Function}|Promise<{exec:Function}>} bridgeOrPromise
  */
 export function createTools(bridgeOrPromise, {
     cwd = DEFAULT_CWD, readyTimeoutMs = READY_TIMEOUT_MS, skills = null, delegate = null, isEnabled = () => true,
-    sync = null, files = null, bashTimeoutMs = () => BASH_DEFAULT_MS,
+    sync = null, files = null, bashTimeoutMs = () => BASH_DEFAULT_MS, env = () => ({}),
 } = {}) {
     const syncQuietly = async () => { try { await sync?.(); } catch { /* the call still runs */ } };
+    // Every variable name the user has set while these tools lived (see withUserEnv).
+    const managedEnv = new Set();
+    const userEnv = () => {
+        let vars = {};
+        try { vars = env() || {}; } catch { /* none */ }
+        for (const k of Object.keys(vars)) managedEnv.add(k);
+        return vars;
+    };
 
     /* name -> { name, cwd, env }: env is the shell's exported variables, as a script. */
     const shells = new Map();
@@ -514,7 +545,8 @@ exit 0`,
                 throw new ToolError('shell must be 1 to 40 letters, digits, dots, dashes or underscores.');
             }
             const sh = shell ? shellOf(shell, own) : own;
-            const env = sh.env ? { env: sh.env } : {};
+            const envScript = withUserEnv(sh.env, userEnv(), managedEnv);
+            const env = envScript ? { env: envScript } : {};
             if (run_in_background) {
                 // Its own session, so it outlives this call and can be killed as a group.
                 // It inherits the shell's exported variables.

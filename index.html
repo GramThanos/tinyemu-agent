@@ -78,6 +78,12 @@
   #dataStats dd { margin: 0; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
   .databar { flex-wrap: wrap; }
   .databar button.danger { color: #e88; }
+  #envRows { display: flex; flex-direction: column; gap: 4px; margin: 0 0 6px; }
+  #envRows .envrow { display: grid; grid-template-columns: minmax(80px, 1fr) minmax(0, 2fr) auto; gap: 6px; align-items: center; }
+  #envRows input { font: 12px ui-monospace, monospace; min-width: 0; }
+  #envRows input.bad { outline: 1px solid #e88; }
+  #envRows .envrow button { padding: 1px 7px; }
+  #envNote { margin: 0 0 6px; }
   /* The log of exchanges */
   #logBar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid #2a2e37; font-size: 12px; color: #8a93a2; }
   #logBar button { padding: 2px 8px; font-size: 12px; }
@@ -103,6 +109,17 @@
   #log.hide-thinking details.thinking { display: none; }
   #log { flex: 1; overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
   .msg { white-space: pre-wrap; overflow-wrap: anywhere; }
+  #chatTabs { display: flex; gap: 4px; align-items: center; padding: 6px 10px 0; overflow-x: auto; flex-shrink: 0; border-bottom: 1px solid #2a2e37; }
+  #chatTabs .ctab { display: flex; align-items: center; max-width: 180px; flex-shrink: 0; border: 1px solid #2a2e37; border-bottom: 0; border-radius: 6px 6px 0 0; background: #16191e; }
+  #chatTabs .ctab[aria-selected=true] { background: #26364f; border-color: #3a4c69; }
+  #chatTabs .ctab .cname { padding: 3px 4px 3px 9px; border: 0; background: none; color: #c8d0dc; font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 150px; cursor: pointer; }
+  #chatTabs .ctab[aria-selected=true] .cname { color: #fff; }
+  #chatTabs .ctab .cclose { padding: 0 6px; border: 0; background: none; color: #8a93a2; font-size: 13px; cursor: pointer; }
+  #chatTabs .ctab .cclose:hover { color: #e88; }
+  #chatTabs #chatNew { flex-shrink: 0; padding: 1px 8px; font-size: 13px; }
+  #chatTabs button:disabled { cursor: default; }
+  .msg.waiting { display: flex; gap: 8px; align-items: center; color: #8a93a2; }
+  .msg.waiting .spinner { float: none; margin: 0; flex-shrink: 0; }
   .mstat { display: block; margin-top: 4px; color: #8a93a2; font: 11px system-ui, sans-serif; white-space: normal; user-select: none; }
   .msg.user .mstat { text-align: right; color: #9fb0c8; }
   details.thinking > summary .mstat { display: inline; margin: 0 0 0 8px; }
@@ -219,6 +236,7 @@
       <button id="compactNow" disabled title="Summarize the conversation so far, to free context">Compact</button>
     </div>
     <div id="chatView" role="tabpanel" aria-labelledby="tabChat">
+      <div id="chatTabs" role="tablist" aria-label="Chats"></div>
       <div id="log" aria-live="polite"><div id="queued"></div></div>
       <form id="chat">
         <textarea id="prompt" placeholder="Ask the agent to do something in the VM. Enter sends, Shift+Enter adds a line." disabled></textarea>
@@ -346,13 +364,22 @@
     <div id="vmPane" role="tabpanel" aria-labelledby="tabVM" hidden>
       <h2>Machine</h2>
       <p class="hint">Which system the VM runs: its disk (root filesystem) and processor. A change reloads the page to
-        start the VM again: the workspace and the skills stay, the chat starts over (export it from the Log tab first to
-        restore it after). Each machine keeps its own saved state.</p>
+        start the VM again: the workspace, skills and chats stay. Each machine keeps its own saved state.</p>
       <div class="toggles">
         <label>System <select id="vmConfig"></select></label>
         <label>Memory <select id="vmMemory"></select></label>
         <p class="hint" id="vmConfigNote"></p>
         <div class="sysbar"><button id="vmApply" disabled>Restart with these</button></div>
+      </div>
+      <h2>Environment</h2>
+      <p class="hint">Variables set in every shell the agent's commands run in (the Bash tool, sub-agents' too), at
+        the start of each command, and in new login shells in the VM (<code>/etc/profile.d/tinyemu-agent.sh</code>).
+        Kept in this browser. A command can change one for itself; the next starts from this list again.</p>
+      <div id="envRows"></div>
+      <p class="hint" id="envNote"></p>
+      <div class="sysbar">
+        <button id="envAdd" title="Add a variable">Add variable</button>
+        <button id="envSave" disabled title="Use these from the next command">Save</button>
       </div>
       <h2>Saved state</h2>
       <p class="hint">A saved state is the whole running VM. Reloading the page resumes it in seconds instead of booting
@@ -371,7 +398,8 @@
         <button id="dataSkills" title="Delete every imported skill">Delete skills</button>
         <button id="dataStates" title="Delete the saved state of every machine">Delete saved states</button>
         <button id="dataSettings" title="Put the settings and the VM choice back to their defaults, and reload">Reset settings</button>
-        <button id="dataEverything" class="danger" title="Delete all of the above, and the saved connection with its API key, and reload">Delete everything</button>
+        <button id="dataChats" title="Delete every chat, and start a new one">Delete chats</button>
+        <button id="dataEverything" class="danger" title="Delete all of the above, the chats, and the saved connection with its API key, and reload">Delete everything</button>
       </div>
     </div>
   </section>
@@ -381,8 +409,9 @@
 import { SnapshotStore, snapshotFingerprint, VMManager } from './engine/vm/index.js';
 import { GuestBridge, VOLUME, WORKSPACE, WORKSPACE_VOLUME } from './js/GuestBridge.js';
 import { asText, FileBrowser, formatSize, readEntry } from './js/FileBrowser.js';
+import { ChatStore, MAX_EXCHANGES, MemoryChatStore, newChat, pickChat, titleFrom } from './js/chats.js';
 import { LinkError, LinkedFolders } from './js/LinkedFolders.js';
-import { ALL_TOOL_NAMES, BASH_DEFAULT_MS, BASH_MAX_MS, createTools, DELEGATE_TOOL } from './js/tools.js';
+import { ALL_TOOL_NAMES, BASH_DEFAULT_MS, BASH_MAX_MS, createTools, DELEGATE_TOOL, ENV_NAME, shQuote } from './js/tools.js';
 import { SKILL_FILE, SkillLibrary, SKILLS_DIR, SKILLS_STORAGE_KEY, SKILLS_VOLUME } from './js/skills.js';
 import {
     Agent, createDelegate, EMPTY_RETRIES, MAX_STEPS, renderPrompt, SUBAGENT_MAX_STEPS, subagentPrompt, SYSTEM_PROMPT, TOOL_ARG,
@@ -495,6 +524,38 @@ function setMessageStat(el, text, title) {
 }
 const tokensPerSecond = (tokens, ms) => (ms > 0 ? tokens / (ms / 1000) : 0);
 
+/* "Waiting for the model…", with a spinner and the seconds so far, from when a
+ * request goes out until its first visible output (or its end). */
+let waiting = null;
+function showWaiting(text) {
+    hideWaiting();
+    const el = addMessage('note waiting');
+    const spin = document.createElement('span');
+    spin.className = 'spinner';
+    spin.setAttribute('aria-hidden', 'true');
+    const label = document.createElement('span');
+    el.append(spin, label);
+    const started = Date.now();
+    const tick = () => {
+        const s = Math.floor((Date.now() - started) / 1000);
+        label.textContent = s ? `${waiting.text} ${s} s` : waiting.text;
+    };
+    waiting = { el, text, tick, clock: setInterval(() => tick(), 1000) };
+    tick();
+    follow();
+}
+function setWaitingText(text) {
+    if (!waiting) return;
+    waiting.text = text;
+    waiting.tick();
+}
+function hideWaiting() {
+    if (!waiting) return;
+    clearInterval(waiting.clock);
+    waiting.el.remove();
+    waiting = null;
+}
+
 /* A problem with buttons under it: [label, onclick] pairs. Each runs once. */
 function addProblem(text, actions = []) {
     const el = addMessage('problem', text);
@@ -566,49 +627,88 @@ function toolStatText(result, ms) {
     return `${seconds(ms)} · ${lines} line${lines === 1 ? '' : 's'} · ${formatSize(bytes)}`;
 }
 
+/* A "Thinking" box in the chat; returns { box, pre }. */
+function addThinkingBox(text = '') {
+    const box = document.createElement('details');
+    box.className = 'thinking';
+    const s = document.createElement('summary');
+    s.textContent = 'Thinking';
+    const pre = document.createElement('pre');
+    pre.textContent = text;
+    box.append(s, pre);
+    logAppend(box);
+    follow();
+    return { box, pre };
+}
+
+/* A tool card's end state: its output, failure mark and stats line. */
+function finishToolCard(c, { output, isError, statText, statTitle }) {
+    c.output.textContent = output;
+    c.card.classList.toggle('failed', !!isError);
+    c.spinner.remove();
+    clearInterval(c.clock);
+    if (statText) { c.stat.textContent = statText; c.stat.title = statTitle || ''; }
+    else c.stat.textContent = '';
+}
+
 function uiHooks() {
     let textEl = null;
     let thinkEl = null;
+    let textEv = null;         // the chat events (see js/chats.js) being written
+    let thinkEv = null;
     let compactingEl = null;   // the "compacting…" note while a summary is written
-    const cards = new Map();
+    const cards = new Map();   // call id -> { card, output, spinner, stat, clock, ev }
     // One model reply (a step): when it was asked for, its first streamed token,
     // and where its stats go once the provider reports its usage.
     let step = null;
     const firstToken = () => { if (step && !step.first) step.first = Date.now(); };
     return {
-        stepStart() { textEl = null; thinkEl = null; step = { start: Date.now(), first: 0, textEl: null, thinkEl: null, pending: null }; },
+        stepStart() {
+            textEl = null;
+            thinkEl = null;
+            textEv = null;
+            thinkEv = null;
+            step = { start: Date.now(), first: 0, textEl: null, thinkEl: null, textEv: null, thinkEv: null, pending: null };
+            showWaiting(`Waiting for ${agentLabel || 'the model'}…`);
+        },
         text(t) {
             firstToken();
+            hideWaiting();
             if (!textEl) {
                 textEl = addMessage('assistant');
-                if (step) step.textEl = textEl;
+                textEv = recordChat({ k: 'assistant', text: '' });
+                if (step) { step.textEl = textEl; step.textEv = textEv; }
             }
             // Before the stats line, if a later chunk of the same reply arrives.
             const s = textEl.querySelector(':scope > .mstat');
             if (s) s.before(t); else textEl.append(t);
+            textEv.text += t;
+            chatChanged();
             follow();
         },
         thinking(t) {
             firstToken();
+            // Hidden thinking (Settings) shows nothing, so keep the indicator, saying so.
+            if (settings.thinking) hideWaiting();
+            else setWaitingText(`${agentLabel || 'The model'} is thinking…`);
             if (!thinkEl) {
-                const box = document.createElement('details');
-                box.className = 'thinking';
-                const s = document.createElement('summary');
-                s.textContent = 'Thinking';
-                thinkEl = document.createElement('pre');
-                box.append(s, thinkEl);
-                logAppend(box);
-                follow();
-                if (step) step.thinkEl = box;
+                const { box, pre } = addThinkingBox();
+                thinkEl = pre;
+                thinkEv = recordChat({ k: 'thinking', text: '' });
+                if (step) { step.thinkEl = box; step.thinkEv = thinkEv; }
             }
             thinkEl.append(t);
+            thinkEv.text += t;
+            chatChanged();
         },
         toolStart(call) {
+            hideWaiting();
             textEl = null;
             const c = addToolCard(call);
+            c.ev = recordChat({ k: 'tool', call, output: '', isError: false, statText: '', statTitle: '', title: '', done: false });
             cards.set(call.id, c);
             // A reply with only tool calls: its stats go on the first card's tooltip.
-            if (step?.pending) { c.card.title = step.pending; step.pending = null; }
+            if (step?.pending) { c.card.title = c.ev.title = step.pending; step.pending = null; }
         },
         toolOutput(call, t) {
             const c = cards.get(call.id);
@@ -619,31 +719,34 @@ function uiHooks() {
         toolEnd(call, result, stats = {}) {
             const c = cards.get(call.id);
             // A sub-agent's progress stays above its report; other output is replaced.
-            if (call.name === DELEGATE_TOOL && c.output.textContent) {
-                c.output.append(`\n\n── ${result.isError ? 'failed' : 'report'} ──\n${result.content}`);
-            } else {
-                c.output.textContent = result.content;
-            }
-            c.card.classList.toggle('failed', result.isError);
-            c.spinner.remove();
-            clearInterval(c.clock);
+            const output = call.name === DELEGATE_TOOL && c.output.textContent
+                ? `${c.output.textContent}\n\n── ${result.isError ? 'failed' : 'report'} ──\n${result.content}`
+                : result.content;
+            const end = { output, isError: result.isError, statText: '', statTitle: '' };
             if (Number.isFinite(stats.ms)) {
-                c.stat.textContent = toolStatText(result, stats.ms);
-                c.stat.title = `Ran for ${stats.ms.toLocaleString()} ms${result.isError ? ', and failed' : ''}`;
+                end.statText = toolStatText(result, stats.ms);
+                end.statTitle = `Ran for ${stats.ms.toLocaleString()} ms${result.isError ? ', and failed' : ''}`;
                 countTool(call.name, stats.ms, result.isError);
             }
+            finishToolCard(c, end);
+            Object.assign(c.ev, end, { done: true });
+            chatChanged();
             follow();
             if (!$('filesPane').hidden) files.refresh();   // the call may have changed /workspace
         },
-        retrying(why) { addMessage('note', `↻ ${why}`); },
+        retrying(why) { addChatNote('note', `↻ ${why}`); },
         injected(item) { queued.get(item.id)?.deliver(); },
         usage(u, kind) {
             addUsage('main', u, kind);
+            if (kind !== 'compaction') hideWaiting();
             if (kind === 'compaction' || !step) return;
             // Speed: output tokens (thinking included) over the time they streamed,
             // from the first token; the wait before it is shown apart.
             const end = Date.now();
-            const genMs = end - (step.first || step.start);
+            // A reply that came in one piece (no streaming) has no stream to time:
+            // then it is over the whole request.
+            const streamed = step.first && end - step.first >= 250;
+            const genMs = end - (streamed ? step.first : step.start);
             const out = u.output || 0;
             const tps = tokensPerSecond(out, genMs);
             const text = `${stampText(end)} · ${out.toLocaleString()} tokens${tps ? ` · ${tps.toFixed(tps < 10 ? 1 : 0)} tok/s` : ''}`;
@@ -653,9 +756,16 @@ function uiHooks() {
                 + `in ${seconds(genMs)}: ${tps.toFixed(1)} tokens/s\n`
                 + `Input ${(u.input || 0).toLocaleString()}, cache read ${(u.cacheRead || 0).toLocaleString()}, `
                 + `cache write ${(u.cacheWrite || 0).toLocaleString()} tokens`;
-            if (step.textEl) setMessageStat(step.textEl, text, title);
-            else if (step.thinkEl) setMessageStat(step.thinkEl.querySelector('summary'), text, title);
-            else step.pending = `${text}\n${title}`;
+            if (step.textEl) {
+                setMessageStat(step.textEl, text, title);
+                step.textEv.stat = { text, title };
+            } else if (step.thinkEl) {
+                setMessageStat(step.thinkEl.querySelector('summary'), text, title);
+                step.thinkEv.stat = { text, title };
+            } else {
+                step.pending = `${text}\n${title}`;
+            }
+            chatChanged();
         },
         context() { renderContext(); },
         compactStart() {
@@ -667,12 +777,13 @@ function uiHooks() {
             compactingEl = null;
             compactions.main++;
             addCompactionCard(c);
+            recordChat({ k: 'compaction', c, who: 'the conversation' });
             renderContext();
         },
         compactFailed(e) {
             compactingEl?.remove();
             compactingEl = null;
-            addMessage('problem', `Could not compact the conversation (${e.message}); carrying on without.`);
+            addChatNote('problem', `Could not compact the conversation (${e.message}); carrying on without.`);
         },
     };
 }
@@ -1448,8 +1559,20 @@ const pageFiles = {
     put(volume, path, bytes) { return this.vm.volumePutFile(volume, path, bytes); },
 };
 
+/* The VM tab's environment variables: [[name, value], ...], in the user's order. */
+const ENV_VARS = 'tinyemu-agent-env';
+let envVars = (() => {
+    try {
+        const saved = JSON.parse(localStorage.getItem(ENV_VARS));
+        return Array.isArray(saved) ? saved.filter((e) => Array.isArray(e) && ENV_NAME.test(e[0]) && typeof e[1] === 'string') : [];
+    } catch { return []; }
+})();
+const envObject = () => Object.fromEntries(envVars);
+let liveBridge = null;   // the guest bridge, once the VM is ready
+
 const tools = createTools(new Promise((resolve, reject) => { vmReady = { resolve, reject }; }), {
     skills,
+    env: envObject,
     sync: () => links.sync(),
     delegate: (input, ctx) => delegate(input, ctx),
     isEnabled: (name) => !settings.disabledTools.includes(name),
@@ -1485,11 +1608,15 @@ function updateControls() {
     const appending = !!running?.turn && !!$('prompt').value.trim();
     $('send').textContent = running ? (appending ? 'Append' : 'Stop') : 'Send';
     $('send').title = appending ? 'Give the agent this message at its next step, without stopping it' : '';
-    // Switching model starts a new conversation, so not in the middle of a turn.
+    // Switching model hands the chat to another model, so not in the middle of a turn.
     $('connect').disabled = !!running || loading;
     $('model').disabled = !!running || loading || !modelsListed;
     // A compaction rewrites the history, so never during a turn.
     $('compactNow').disabled = !agent || !!running || !agent.provider.transcript?.().length;
+    // The agent works in one chat: switching, adding or deleting waits for it.
+    for (const b of $('chatTabs').querySelectorAll('button')) {
+        b.disabled = !!running && !(b.classList.contains('cname') && b.closest('[aria-selected=true]'));
+    }
 }
 $('prompt').addEventListener('input', () => { if (running) updateControls(); });
 
@@ -1535,18 +1662,33 @@ async function chooseModel() {
     }
 }
 
-function useProvider(provider, label) {
+/* Connect the open chat to a model. Its own conversation goes back into the
+ * provider when that is the same kind (Claude, OpenAI-style, in-browser) that
+ * wrote it: each keeps its history in its own format. */
+function useProvider(provider, label, { quiet = false } = {}) {
     agent = new Agent({
         provider, tools, on: uiHooks(), context: contextOptions, system: currentSystem,
         maxSteps: () => settings.maxSteps, emptyRetries: () => settings.emptyRetries, log: logExchange,
     });
     agentLabel = label;
-    resetUsage();
-    compactions.main = 0;
-    compactions.sub = 0;
+    agentChatId = chat.id;
+    let how = 'This chat starts here.';
+    if (chat.history) {
+        try {
+            provider.importHistory(chat.history);
+            how = 'It carries on this chat.';
+        } catch {
+            how = `This chat's earlier messages were with ${chat.model || 'another kind of model'}, which keeps them in `
+                + 'another format, so this model starts without them.';
+        }
+    } else if (chat.events.some((e) => e.k === 'user')) {
+        how = 'This chat\'s earlier messages were not saved with it, so the model starts without them.';
+    }
+    chat.model = label;
     renderContext();
+    renderChatTabs();
     logExchange({ agent: 'main', type: 'start', model: label, kind: provider.kind ?? null, system: currentSystem(), tools: tools.defs.map((d) => d.name) });
-    addMessage('note', `Connected to ${label}. This starts a new conversation.`);
+    if (!quiet) addMessage('note', `Connected to ${label}. ${how}`);
     updateControls();
     $('prompt').focus();
 }
@@ -1594,6 +1736,7 @@ function addQueued(id, text) {
             const now = Date.now();
             setMessageStat(el, stampText(sent), `Sent ${new Date(sent).toLocaleString()}, while the agent worked; `
                 + `it took the message at ${new Date(now).toLocaleTimeString()}`);
+            recordChat({ k: 'user', text, at: sent, took: now });
             logAppend(el);
             queued.delete(id);
             follow();
@@ -1631,12 +1774,13 @@ async function runTurn(work) {
     let aborted = false;
     try {
         const r = await work(running.signal);
-        if (r.stop === 'aborted') { aborted = true; addMessage('note', 'Stopped.'); }
-        else if (r.stop === 'empty') addProblem(`${r.detail} Ask again, or tell it to go on.`, stopActions(r.stop));
-        else if (r.stop !== 'end') addProblem(r.detail || `Stopped: ${r.stop}`, stopActions(r.stop));
+        if (r.stop === 'aborted') { aborted = true; addChatNote('note', 'Stopped.'); }
+        else if (r.stop === 'empty') addChatProblem(`${r.detail} Ask again, or tell it to go on.`, stopActions(r.stop));
+        else if (r.stop !== 'end') addChatProblem(r.detail || `Stopped: ${r.stop}`, stopActions(r.stop));
     } catch (e) {
-        addProblem(e.message, stopActions('error'));
+        addChatProblem(e.message, stopActions('error'));
     } finally {
+        hideWaiting();
         aborted ||= running.signal.aborted;
         running = null;
         // Messages the agent didn't get to: after Stop they go back in the box,
@@ -1654,12 +1798,15 @@ async function runTurn(work) {
             }
         }
         updateControls();
+        saveChatSoon(0);
     }
 }
 
 async function startTurn(shown, expanded = null) {
     const sent = Date.now();
     setMessageStat(addMessage('user', shown), stampText(sent), `Sent ${new Date(sent).toLocaleString()}`);
+    recordChat({ k: 'user', text: shown, at: sent });
+    nameChat(shown);
     await runTurn(async (signal) => {
         // The guest can add or edit skills too, so look again before each turn.
         await skills.refresh().catch(() => {});
@@ -1679,6 +1826,226 @@ async function sendPrompt() {
     $('prompt').value = '';
     await startTurn(text);
 }
+
+/* ---- chats: kept in this browser, one per tab (js/chats.js) ------------------- */
+
+const chatStore = typeof indexedDB === 'undefined' ? new MemoryChatStore() : new ChatStore();
+const ACTIVE_CHAT = 'tinyemu-agent-active-chat';
+let chats = [];
+let chat = null;          // the open chat
+let agentChatId = null;   // the chat whose conversation the agent's provider holds
+let chatSaveTimer = null;
+
+/* Add an event to the open chat (see js/chats.js); returns it, to fill in later. */
+function recordChat(ev) {
+    chat.events.push(ev);
+    chatChanged();
+    return ev;
+}
+function chatChanged() {
+    chat.updated = Date.now();
+    saveChatSoon();
+}
+/* A note or problem that belongs to the conversation, so it is kept with it. */
+function addChatNote(kind, text) {
+    recordChat({ k: kind, text });
+    return addMessage(kind, text);
+}
+function addChatProblem(text, actions) {
+    recordChat({ k: 'problem', text });
+    return addProblem(text, actions);
+}
+/* The first message names the chat. */
+function nameChat(text) {
+    if (chat.titled) return;
+    chat.title = titleFrom(text);
+    chat.titled = true;
+    renderChatTabs();
+}
+
+/* Saves go at most every 2 s while text streams in, and at once at a turn's end. */
+function saveChatSoon(ms = 2000) {
+    if (chatSaveTimer && ms) return;
+    clearTimeout(chatSaveTimer);
+    chatSaveTimer = setTimeout(() => { chatSaveTimer = null; saveChat(); }, ms);
+}
+async function saveChat(c = chat) {
+    if (!c || !chats.includes(c)) return;
+    if (c === chat) {
+        // The figures the Settings and Log tabs show belong to the open chat.
+        if (agent && agentChatId === c.id) {
+            try { c.history = agent.provider.exportHistory?.() ?? c.history; } catch { /* keep the last */ }
+        }
+        c.usage = structuredClone(usage);
+        c.toolStats = structuredClone(toolStats);
+        c.compactions = { ...compactions };
+        if (!logImported) c.exchanges = exchanges.slice(-MAX_EXCHANGES);
+    }
+    try {
+        await chatStore.put(c);
+    } catch (e) {
+        console.warn('chats: could not save', e);
+    }
+}
+
+/* Draw a saved chat's events, as the live hooks drew them. */
+function drawChatEvent(ev) {
+    if (ev.k === 'user') {
+        const el = addMessage('user', ev.text);
+        setMessageStat(el, stampText(ev.at), `Sent ${new Date(ev.at).toLocaleString()}`
+            + (ev.took ? `, while the agent worked; it took the message at ${new Date(ev.took).toLocaleTimeString()}` : ''));
+    } else if (ev.k === 'assistant') {
+        const el = addMessage('assistant', ev.text);
+        if (ev.stat) setMessageStat(el, ev.stat.text, ev.stat.title);
+    } else if (ev.k === 'thinking') {
+        const { box } = addThinkingBox(ev.text);
+        if (ev.stat) setMessageStat(box.querySelector('summary'), ev.stat.text, ev.stat.title);
+    } else if (ev.k === 'tool') {
+        const c = addToolCard(ev.call);
+        if (ev.title) c.card.title = ev.title;
+        finishToolCard(c, ev.done ? ev : {
+            output: ev.output || '', isError: true, statText: 'interrupted',
+            statTitle: 'The page closed or reloaded while this ran; its result was never seen by the model',
+        });
+    } else if (ev.k === 'compaction') {
+        addCompactionCard(ev.c, ev.who);
+    } else if (ev.k === 'note' || ev.k === 'problem') {
+        addMessage(ev.k, ev.text);
+    }
+}
+
+/* Make `c` the open chat: its messages, and its figures in the Settings and Log tabs. */
+function showChat(c) {
+    chat = c;
+    try { localStorage.setItem(ACTIVE_CHAT, c.id); } catch { /* not remembered */ }
+    for (const el of [...log.children]) if (el !== queuedBox) el.remove();
+    Object.assign(usage, { main: emptyUsage(), sub: emptyUsage(), compaction: emptyUsage() }, c.usage || {});
+    toolStats = structuredClone(c.toolStats || {});
+    Object.assign(compactions, { main: 0, sub: 0 }, c.compactions || {});
+    exchanges = Array.isArray(c.exchanges) ? [...c.exchanges] : [];
+    logImported = false;
+    logShown = 0;
+    renderUsage();
+    renderToolStats();
+    renderLog({ redraw: true });
+    renderContext();
+    for (const ev of c.events) drawChatEvent(ev);
+    log.scrollTop = log.scrollHeight;
+    renderChatTabs();
+}
+
+function renderChatTabs() {
+    const bar = $('chatTabs');
+    bar.replaceChildren();
+    for (const c of chats) {
+        const tab = document.createElement('div');
+        tab.className = 'ctab';
+        tab.setAttribute('role', 'tab');
+        tab.setAttribute('aria-selected', String(c === chat));
+        const name = document.createElement('button');
+        name.className = 'cname';
+        name.textContent = c.title;
+        name.title = `${c.title}\nStarted ${new Date(c.created).toLocaleString()}`
+            + (c.model ? `\nModel: ${c.model}` : '') + '\nDouble-click to rename';
+        name.onclick = () => switchChat(c.id);
+        name.ondblclick = () => renameChat(c);
+        const close = document.createElement('button');
+        close.className = 'cclose';
+        close.textContent = '×';
+        close.title = 'Delete this chat';
+        close.setAttribute('aria-label', `Delete the chat ${c.title}`);
+        close.onclick = () => deleteChat(c);
+        tab.append(name, close);
+        bar.append(tab);
+    }
+    const add = document.createElement('button');
+    add.id = 'chatNew';
+    add.textContent = '+';
+    add.title = 'Start a new chat';
+    add.setAttribute('aria-label', 'New chat');
+    add.onclick = () => newChatTab();
+    bar.append(add);
+    bar.querySelector('[aria-selected=true]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (typeof updateControls === 'function') updateControls();
+}
+
+/* The agent moves to another chat: a fresh conversation with the same model,
+ * into which that chat's own conversation goes back. */
+function moveAgentTo() {
+    if (!agent) return;
+    const p = agent.provider.fork({ system: currentSystem(), tools: tools.defs });
+    p.kind = agent.provider.kind;
+    useProvider(p, agentLabel, { quiet: !chat.events.length });
+}
+
+async function switchChat(id) {
+    if (chat?.id === id) return;
+    if (running) { addMessage('problem', 'The agent is working in this chat; stop it first.'); return; }
+    const next = chats.find((c) => c.id === id);
+    if (!next) return;
+    clearTimeout(chatSaveTimer);
+    chatSaveTimer = null;
+    await saveChat();
+    showChat(next);
+    moveAgentTo();
+}
+
+async function newChatTab() {
+    if (running) { addMessage('problem', 'The agent is working in this chat; stop it first.'); return; }
+    const c = newChat();
+    chats.push(c);
+    await chatStore.put(c).catch(() => {});
+    await switchChat(c.id);
+    $('prompt').focus();
+}
+
+async function deleteChat(c) {
+    if (running && c === chat) { addMessage('problem', 'The agent is working in this chat; stop it first.'); return; }
+    if (c.events.length && !confirm(`Delete the chat "${c.title}"? Its messages and log go; the workspace and files stay. `
+        + 'This can\'t be undone.')) return;
+    chats = chats.filter((x) => x !== c);
+    await chatStore.delete(c.id).catch(() => {});
+    if (c !== chat) { renderChatTabs(); return; }
+    // The open one: go to the latest other, or a new one.
+    const next = pickChat(chats, null) || newChat();
+    if (!chats.includes(next)) { chats.push(next); await chatStore.put(next).catch(() => {}); }
+    chat = null;
+    showChat(next);
+    moveAgentTo();
+}
+
+function renameChat(c) {
+    const t = prompt('Name this chat:', c.title);
+    if (t === null || !t.trim()) return;
+    c.title = t.trim().slice(0, 80);
+    c.titled = true;
+    c.updated = Date.now();
+    saveChat(c);
+    renderChatTabs();
+}
+
+/* Delete every chat (the VM tab's Delete everything). */
+async function deleteAllChats() {
+    await chatStore.clear().catch(() => {});
+    try { localStorage.removeItem(ACTIVE_CHAT); } catch { /* none */ }
+    chats = [];
+}
+
+/* Before anything can connect: a restored connection carries on the open chat. */
+try {
+    chats = ((await chatStore.all()) || []).filter((c) => c && c.id && Array.isArray(c.events));
+} catch (e) {
+    console.warn('chats: could not load', e);
+}
+chats.sort((a, b) => a.created - b.created);
+if (!chats.length) chats.push(newChat());
+{
+    let wanted = null;
+    try { wanted = localStorage.getItem(ACTIVE_CHAT); } catch { /* none */ }
+    showChat(pickChat(chats, wanted));
+}
+// Try to keep the last few seconds of a reply when the page goes.
+addEventListener('pagehide', () => { if (chatSaveTimer) { clearTimeout(chatSaveTimer); chatSaveTimer = null; saveChat(); } });
 
 fillProviders();
 providerChanged();
@@ -1830,8 +2197,8 @@ $('vmApply').onclick = async () => {
     const memoryMB = Number($('vmMemory').value);
     if (!distro) return;
     if (!confirm(`Reload the page to start the VM as ${distroInfo(distro).label || distro} with ${memoryMB} MB?\n\n`
-        + 'What runs in the VM now stops (press Save state first to come back to it). The workspace and skills are kept. '
-        + 'The chat starts over: export it from the Log tab first if you want to restore the conversation after.')) return;
+        + 'What runs in the VM now stops (press Save state first to come back to it). The workspace, skills and chats '
+        + 'are kept.')) return;
     try { localStorage.setItem(VM_PREFS, JSON.stringify({ ...vmPrefs, distro, memoryMB })); } catch {
         addMessage('problem', 'This browser has no storage for the choice, so it would be lost on the restart.');
         return;
@@ -2346,6 +2713,8 @@ async function startVM() {
     };
     await checkMounts(bridge);
     vmReady.resolve(bridge);
+    liveBridge = bridge;
+    writeGuestEnv(bridge);
     bootEnd();
     vmState.how = how;
     vmState.seconds = bootSeconds();
@@ -2357,7 +2726,8 @@ async function startVM() {
 
     // For console poking and for driving the page from tests.
     window.agentDemo = {
-        vm, bridge, tools, skills, links, linkFolder, copyFolderIn, files, settings, usage, useProvider, Agent, saveState, pageFiles,
+        vm, bridge, tools, skills, links, linkFolder, copyFolderIn, files, settings,
+        chats: () => chats, openChat: () => chat, switchChat, newChatTab, deleteChat, saveChat, usage, useProvider, Agent, saveState, pageFiles,
         exchanges: () => exchanges, toolStats: () => toolStats, machine,
     };
 
@@ -2381,6 +2751,87 @@ async function checkMounts(bridge) {
 }
 
 $('saveState').onclick = () => saveState();
+
+/* ---- the VM tab's Environment section ---------------------------------------- */
+
+/* New login shells in the guest (the console's `sh -l`, `su -`) get the variables
+ * from /etc/profile.d. Best effort: a guest without it just doesn't. */
+async function writeGuestEnv(bridge) {
+    const profile = ['# Set by the TinyEMU Agent page (VM tab, Environment).',
+        ...envVars.map(([k, v]) => `export ${k}=${shQuote(v)}`), ''].join('\n');
+    // The file goes in as an input, so no value can end a here-document early.
+    const script = envVars.length
+        ? 'mkdir -p /etc/profile.d && cp "$AGENT_DIR/profile" /etc/profile.d/tinyemu-agent.sh'
+        : 'rm -f /etc/profile.d/tinyemu-agent.sh';
+    try { await bridge.exec({ script, inputs: { profile }, timeoutMs: 15000 }); } catch { /* not there yet, or no /etc */ }
+}
+
+function envRow(name = '', value = '') {
+    const row = document.createElement('div');
+    row.className = 'envrow';
+    const k = document.createElement('input');
+    k.placeholder = 'NAME';
+    k.value = name;
+    k.spellcheck = false;
+    k.setAttribute('aria-label', 'Variable name');
+    const v = document.createElement('input');
+    v.placeholder = 'value';
+    v.value = value;
+    v.spellcheck = false;
+    v.setAttribute('aria-label', 'Value');
+    const del = document.createElement('button');
+    del.textContent = '×';
+    del.title = 'Remove this variable';
+    del.onclick = () => { row.remove(); envChanged(); };
+    k.oninput = v.oninput = envChanged;
+    row.append(k, v, del);
+    return row;
+}
+function renderEnv() {
+    $('envRows').replaceChildren(...envVars.map(([k, v]) => envRow(k, v)));
+    envChanged();
+}
+/* What the rows say: the pairs, and what is wrong with them. */
+function envFromRows() {
+    const pairs = [];
+    const problems = [];
+    const seen = new Set();
+    for (const row of $('envRows').children) {
+        const [k, v] = row.querySelectorAll('input');
+        const name = k.value.trim();
+        const bad = name && (!ENV_NAME.test(name) || seen.has(name));
+        k.classList.toggle('bad', !!bad);
+        if (!name) { if (v.value) problems.push('a value has no name'); continue; }
+        if (!ENV_NAME.test(name)) problems.push(`${name} is not a valid name (letters, digits and _, not starting with a digit)`);
+        else if (seen.has(name)) problems.push(`${name} is there twice`);
+        seen.add(name);
+        pairs.push([name, v.value]);
+    }
+    return { pairs, problems };
+}
+function envChanged() {
+    const { pairs, problems } = envFromRows();
+    const same = JSON.stringify(pairs) === JSON.stringify(envVars);
+    $('envSave').disabled = same || problems.length > 0;
+    $('envNote').textContent = problems.length ? `Can't save: ${problems.join('; ')}.` : same ? '' : 'Unsaved changes.';
+}
+$('envAdd').onclick = () => {
+    const row = envRow();
+    $('envRows').append(row);
+    row.querySelector('input').focus();
+    envChanged();
+};
+$('envSave').onclick = async () => {
+    const { pairs, problems } = envFromRows();
+    if (problems.length) return;
+    try { localStorage.setItem(ENV_VARS, JSON.stringify(pairs)); } catch {
+        addMessage('problem', 'This browser has no storage for the variables, so they last until the page reloads.');
+    }
+    envVars = pairs;
+    renderEnv();
+    if (liveBridge) await writeGuestEnv(liveBridge);
+};
+renderEnv();
 
 /* ---- the VM tab's Data section --------------------------------------------- */
 
@@ -2410,6 +2861,7 @@ async function renderDataStats() {
     } else {
         rows.push(['Workspace', 'counted once the VM runs']);
     }
+    rows.push(['Chats', `${plural(chats.length, 'chat')}, ${plural(chats.reduce((n, c) => n + c.events.filter((e) => e.k === 'user').length, 0), 'message')} sent`]);
     rows.push(['Skills', plural(skills.list().length, 'skill')]);
     const states = await SnapshotStore.list().catch(() => []);
     const mine = machine ? snapshotKey() : null;
@@ -2456,7 +2908,7 @@ async function deleteSkills() {
     await skills.refresh().catch(() => {});
 }
 /* Local storage keys of this page (settings, VM choice, card state, connection). */
-const PAGE_KEYS = [SETTINGS, VM_PREFS, CARDS_OPEN];
+const PAGE_KEYS = [SETTINGS, VM_PREFS, CARDS_OPEN, ENV_VARS];
 
 async function dataAction(button, label, fn) {
     if (dataBusy()) return;
@@ -2502,10 +2954,25 @@ $('dataStates').onclick = () => {
         addMessage('note', 'Deleted the saved states. Press Save state to save the running VM again.');
     });
 };
+$('dataChats').onclick = () => {
+    if (!confirm(`Delete all ${chats.length} chats, with their messages and logs? The workspace and files stay. This can't be undone.`)) return;
+    dataAction($('dataChats'), 'Deleting…', async () => {
+        clearTimeout(chatSaveTimer);
+        chatSaveTimer = null;
+        await deleteAllChats();
+        const c = newChat();
+        chats.push(c);
+        await chatStore.put(c).catch(() => {});
+        chat = null;
+        showChat(c);
+        moveAgentTo();
+        addMessage('note', 'Deleted all chats.');
+    });
+};
 $('dataSettings').onclick = () => {
     if (!confirm('Put the settings (Settings tab: tools, features, system prompt, context) and the VM tab\'s machine '
         + 'choice back to their defaults, and reload the page? The saved connection, the workspace, skills and saved '
-        + 'states are kept. The chat starts over.')) return;
+        + 'states, and the chats, are kept.')) return;
     dataAction($('dataSettings'), 'Resetting…', async () => {
         for (const k of PAGE_KEYS) { try { localStorage.removeItem(k); } catch { /* none */ } }
         await liveVM?.flush().catch(() => {});
@@ -2513,7 +2980,7 @@ $('dataSettings').onclick = () => {
     });
 };
 $('dataEverything').onclick = () => {
-    if (!confirm('Delete everything this page keeps in this browser: the workspace, skills, saved states, settings, '
+    if (!confirm('Delete everything this page keeps in this browser: the workspace, skills, saved states, chats, settings, '
         + 'the VM choice, and the saved connection with its API key? Then the page reloads and the VM boots from scratch. '
         + 'Linked folders are only unlinked: the folders on your computer stay as they are. This can\'t be undone.')) return;
     dataAction($('dataEverything'), 'Deleting…', async () => {
@@ -2523,6 +2990,10 @@ $('dataEverything').onclick = () => {
         }
         for (const l of [...links.links]) await links.unlink(l.path);
         await SnapshotStore.clear();
+        clearTimeout(chatSaveTimer);
+        chatSaveTimer = null;
+        chat = null;   // nothing to save on the way out
+        await deleteAllChats();
         savedConnection.clear();
         for (const k of PAGE_KEYS) { try { localStorage.removeItem(k); } catch { /* none */ } }
         await liveVM?.flush().catch(() => {});
@@ -2531,7 +3002,7 @@ $('dataEverything').onclick = () => {
 };
 $('freshBoot').onclick = async () => {
     if (!confirm('Forget the saved state of this machine and reload the page to boot it from scratch? What runs in the VM '
-        + 'now stops; the workspace and skills are kept, and the chat starts over.')) return;
+        + 'now stops; the workspace, skills and chats are kept.')) return;
     await SnapshotStore.delete(snapshotKey());
     await liveVM?.flush().catch(() => {});
     location.reload();
