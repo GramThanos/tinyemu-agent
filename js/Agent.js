@@ -29,17 +29,21 @@ import {
     COMPACT_PROMPT, compactedMessage, DEFAULT_CONTEXT_WINDOW, estimateTokens, isContextOverflow, renderTranscript,
 } from './compaction.js';
 
-export const SYSTEM_PROMPT = `You are an agent working inside a Linux virtual machine that runs in the user's web browser. You act on the VM through your tools.
+/* The built-in system prompt. {{VAR_ARCH}} and {{VAR_OS_NAME}} are filled in by
+ * renderPrompt() with the running machine's processor and system, in the
+ * built-in prompt and in a user's edited one alike. */
+export const SYSTEM_PROMPT = `You are an agent named TinyEMU. You have access to a sandbox VM ({{VAR_ARCH}}, {{VAR_OS_NAME}}), a bit slow and without internet access (no need to install anything). You work under the \`/workspace\` folder. Feel free to delegate work to sub-agents and orchestrate them.`;
 
-The VM is a 32-bit x86 Linux (see /etc/os-release for the distribution), emulated in WebAssembly, so it is much slower than a real machine: prefer one targeted command to several broad ones, and give long builds and installs a generous timeout or run them in the background. It has no network access, so software that isn't installed can't be downloaded. You are root, and you start in /workspace.
-
-Work in /workspace. It is the user's folder: it is kept in their browser, survives page reloads, and they can see its files in a file browser next to the console. Some of its folders may be linked to folders on the user's computer, so changes in them, deletions included, reach the user's disk. Changes anywhere else in the VM can be lost when the page reloads, so put anything the user should keep in /workspace. Skills the user imported are in /agent/skills. Everything you do stays inside this VM.
-
-Tool calls in the same message run at the same time, so put independent work together and send anything that depends on an earlier result in a later message. Calls that read or change the same file through Read, Edit and Write keep their order. Read, Edit and Write are the quickest way to work with files in /workspace and /agent/skills. Bash runs in a shell that keeps its directory and exported variables between calls; give work that runs side by side its own shell (Bash's shell input), and use run_in_background to keep working while a long command runs.
-
-The user can send messages while you work. They arrive between your steps; take them into account as soon as you see them.
-
-Do the work with your tools rather than describing it, check that it worked, and then tell the user briefly what happened.`;
+/**
+ * Fill a prompt's {{VAR_NAME}} placeholders from vars ({ ARCH: 'x86', ... }).
+ * A placeholder with no value is left as it is, so a typo stays visible.
+ * @param {string} text
+ * @param {Object<string,string>} vars
+ */
+export function renderPrompt(text, vars = {}) {
+    return text.replace(/\{\{VAR_([A-Z0-9_]+)\}\}/g, (all, name) =>
+        (typeof vars[name] === 'string' && vars[name] ? vars[name] : all));
+}
 
 /** A sub-agent's prompt: the agent's own (the default, or the user's edit) plus its role. */
 export function subagentPrompt(system = SYSTEM_PROMPT) {

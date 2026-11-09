@@ -114,7 +114,8 @@ export class GuestBridge {
     }
 
     /**
-     * Wait for a shell on the console, then mount the volume and start agentd.
+     * Wait for a shell on the console, then mount the volume, start agentd and
+     * set the guest clock.
      * @param {() => string} recentConsole  the latest console text, ANSI stripped
      */
     async start(recentConsole, { timeoutMs = 300000, onStatus = () => {} } = {}) {
@@ -139,7 +140,10 @@ export class GuestBridge {
                 await sleep(250);
                 if (await vm.volumeGetFile(VOLUME, '/ready')) {
                     this.ready = true;
-                    await this.exec({ script: PREPARE, timeoutMs: 20000 }).catch(() => {});
+                    // Set the clock: TinyEMU's RISC-V machine has no RTC, so its
+                    // guests boot in 1970 (the PC's CMOS clock already agrees).
+                    const now = Math.floor(Date.now() / 1000);
+                    await this.exec({ script: `date -s @${now} >/dev/null; ${PREPARE}`, timeoutMs: 20000 }).catch(() => {});
                     return;
                 }
             }

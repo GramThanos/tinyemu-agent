@@ -1,0 +1,5 @@
+{
+    "block_size": 512,
+    "n_block": 256,
+    "compression": "gzip"
+}

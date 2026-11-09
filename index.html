@@ -343,7 +343,7 @@ import { LinkError, LinkedFolders } from './js/LinkedFolders.js';
 import { ALL_TOOL_NAMES, BASH_DEFAULT_MS, BASH_MAX_MS, createTools, DELEGATE_TOOL } from './js/tools.js';
 import { SKILL_FILE, SkillLibrary, SKILLS_DIR, SKILLS_STORAGE_KEY, SKILLS_VOLUME } from './js/skills.js';
 import {
-    Agent, createDelegate, EMPTY_RETRIES, MAX_STEPS, SUBAGENT_MAX_STEPS, subagentPrompt, SYSTEM_PROMPT, TOOL_ARG,
+    Agent, createDelegate, EMPTY_RETRIES, MAX_STEPS, renderPrompt, SUBAGENT_MAX_STEPS, subagentPrompt, SYSTEM_PROMPT, TOOL_ARG,
 } from './js/Agent.js';
 import { DEFAULT_CONTEXT_WINDOW } from './js/compaction.js';
 import { CLAUDE_EFFORTS, ClaudeProvider, listClaudeModels } from './js/providers/claude.js';
@@ -757,8 +757,23 @@ function numberSetting(input, key, onChange) {
     };
     return input;
 }
-/* The system prompt in use: the user's edit, or the built-in one. */
-const currentSystem = () => settings.systemPrompt || SYSTEM_PROMPT;
+/* The system prompt as written (the Settings editor shows this): the user's
+ * edit, or the built-in one. */
+const systemTemplate = () => settings.systemPrompt || SYSTEM_PROMPT;
+/* {{VAR_ARCH}} / {{VAR_OS_NAME}}: from the VM tab's machine. A ?cfg= machine
+ * isn't in distro/index.json, so it only gets a generic description. */
+function promptVars() {
+    // Until startVM picks the machine (or before its `let` runs at load), and
+    // for a ?cfg= machine, there is nothing better to say. The Agent re-reads
+    // the prompt at every send, so it is filled in once the machine is known.
+    let m = null;
+    try { m = machine; } catch { /* not declared yet */ }
+    if (!m || m.custom) return { ARCH: 'see uname -m', OS_NAME: 'Linux' };
+    const d = distroInfo(m.distro);
+    return { ARCH: d.arch, OS_NAME: (d.label || d.name).replace(/\s*\([^)]*\)$/, '') };
+}
+/* The system prompt in use, placeholders filled in. */
+const currentSystem = () => renderPrompt(systemTemplate(), promptVars());
 function saveSettings() {
     try { localStorage.setItem(SETTINGS, JSON.stringify(settings)); } catch { /* not remembered */ }
 }
@@ -859,12 +874,12 @@ $('optMentions').onchange = () => { settings.mentions = $('optMentions').checked
 
 function systemEditorState() {
     const text = $('optSystem').value;
-    const unsaved = text !== currentSystem();
+    const unsaved = text !== systemTemplate();
     $('systemSave').disabled = !unsaved || !text.trim();
     $('systemReset').disabled = !settings.systemPrompt && !unsaved;
     $('systemState').textContent = unsaved ? 'unsaved changes' : settings.systemPrompt ? 'edited' : 'built-in';
 }
-$('optSystem').value = currentSystem();
+$('optSystem').value = systemTemplate();
 $('optSystem').oninput = systemEditorState;
 $('systemSave').onclick = () => {
     const text = $('optSystem').value;
@@ -1570,7 +1585,8 @@ const DEFAULT_DISTRO = 'alpine-3.20-x86';
 const DISTRO_NAME = /^[\w-][\w.-]*$/;
 const MEMORY_SIZES = [128, 256, 512];
 const DEFAULT_MEMORY = 256;
-const ENGINE_ARCHES = ['x86'];   // what this page's engine (x86emu-wasm) runs
+// What this page's engine runs: x86emu-wasm has the PC and the RISC-V machines.
+const ENGINE_ARCHES = ['x86', 'riscv32', 'riscv64'];
 const VM_PREFS = 'tinyemu-agent-vm-settings';
 const vmPrefs = (() => {
     try { const p = JSON.parse(localStorage.getItem(VM_PREFS)); return p && typeof p === 'object' ? p : {}; } catch { return {}; }
@@ -1613,7 +1629,7 @@ const vmOptions = ({ distro, memoryMB, custom }) => ({
     configUrl: custom || `distro/${distro}/guest.cfg`,
     mode: 'worker',
     memoryMB,
-    cmdline: [
+    cmdline: (custom || distroInfo(distro).arch === 'x86' ? [
         // Make the boot visible: early messages go to the serial port, which
         // shares the console, and the log level is raised.
         'earlyprintk=ttyS0 loglevel=7',
@@ -1624,7 +1640,11 @@ const vmOptions = ({ distro, memoryMB, custom }) => ({
         // highres/nohz off keep the tick periodic, which is much cheaper to
         // emulate than reprogramming the PIT for every timer.
         'tsc_early_khz=100000 tsc=reliable highres=off nohz=off',
-    ].join(' '),
+    ] : [
+        // RISC-V keeps time with the CLINT's mtime, which follows host time, so
+        // it needs none of that; OpenSBI's banner already shows on the console.
+        'loglevel=7',
+    ]).join(' '),
     hasNetwork: false,
     cols: 80,
     rows: 24,
