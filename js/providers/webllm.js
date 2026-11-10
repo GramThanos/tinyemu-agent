@@ -89,6 +89,15 @@ export class WebLLMProvider {
         return p;
     }
 
+    /** The last reply's tool calls when nothing answered them (the page reloaded mid-turn). */
+    pendingCalls() {
+        const last = this.messages[this.messages.length - 1];
+        if (this.messages.length < 2 || last.role !== 'assistant') return [];
+        return parseToolCalls(last.content).calls
+            .filter((c) => c.name)
+            .map((c) => ({ id: `call_${++this._seq}`, name: c.name, input: c.input || {} }));
+    }
+
     addUser(text) { this.messages.push({ role: 'user', content: text }); }
 
     addToolResults(results) {

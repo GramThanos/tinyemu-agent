@@ -119,6 +119,13 @@ export class ClaudeProvider {
         this.messages = structuredClone(h.messages);
     }
 
+    /** The last reply's tool calls, if no results followed it (the page reloaded mid-turn). */
+    pendingCalls() {
+        const last = this.messages[this.messages.length - 1];
+        if (last?.role !== 'assistant' || !Array.isArray(last.content)) return [];
+        return last.content.filter((b) => b.type === 'tool_use').map((b) => ({ id: b.id, name: b.name, input: b.input }));
+    }
+
     /* After tool results, a message goes in the same user turn, as a text block. */
     addUser(text) {
         const last = this.messages[this.messages.length - 1];

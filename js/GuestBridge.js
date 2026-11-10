@@ -15,7 +15,9 @@
  *   /req/<id>/cwd.after, rc                              (guest → host)
  *
  * Timeouts are timed here, by the page's clock, and enforced through `kill`: the
- * guest's clock can run several times faster than real time.
+ * guest's clock can run several times faster than real time. The page clock is
+ * pauses.now(), which leaves out time the browser had the page stopped (a frozen
+ * tab, a sleeping computer): the VM's worker stopped too, so nothing ran then.
  *
  * `rc` is renamed into place last, so its existence means the job finished. The
  * console stays free for the person typing into the guest's shell.
@@ -23,6 +25,7 @@
 
 'use strict';
 
+import { pauses } from './pause.js';
 import { SKILLS_DIR, SKILLS_VOLUME } from './skills.js';
 
 export const VOLUME = 'agent';
@@ -196,7 +199,7 @@ export class GuestBridge {
         await vm.volumePutFile(VOLUME, `${dir}/cwd`, cwd);
         await vm.volumePutFile(VOLUME, `${dir}/go`, '');
 
-        const timeoutAt = Date.now() + timeoutMs;
+        const timeoutAt = pauses.now() + timeoutMs;
         const deadline = timeoutAt + graceMs;
         let seen = 0;
         let out = new Uint8Array(0);
@@ -224,8 +227,8 @@ export class GuestBridge {
 
                 if (signal?.aborted) kill();
                 if (seen > MAX_OUTPUT) { overflow = true; kill(); }
-                if (!killed && Date.now() > timeoutAt) { timedOut = true; kill(); }
-                if (Date.now() > deadline) throw new Error('the guest stopped responding');
+                if (!killed && pauses.now() > timeoutAt) { timedOut = true; kill(); }
+                if (pauses.now() > deadline) throw new Error('the guest stopped responding');
                 await sleep(POLL_MS);
             }
 

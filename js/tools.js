@@ -1,6 +1,9 @@
 /*
- * tools.js — the tools the model can call: Read, Edit, Write, Glob, Grep, Bash, and
- * `skill` while the user has imported skills (see skills.js).
+ * tools.js — the tools the model can call: Read, Edit, Write, Glob, Grep, Bash,
+ * `skill` while the user has imported skills (see skills.js), Delegate (a
+ * sub-agent, see Agent.js) and ask_user (the page's question form).
+ *
+ * A call's name is matched without case or separators (`bash` runs Bash).
  *
  * Everything acts on the guest filesystem through GuestBridge.exec(). Shell scripts
  * do only what needs the guest (file transfer, find, grep); parsing, matching and
@@ -13,6 +16,7 @@
 
 'use strict';
 
+import { pauses } from './pause.js';
 import { SKILL_TOOL, skillToolDef } from './skills.js';
 
 export const DEFAULT_CWD = '/workspace';
@@ -23,7 +27,7 @@ const READ_MAX_BYTES = 20 * 1024 * 1024;
 const GLOB_MAX = 1000;
 const GREP_MAX = 500;
 const GREP_MAX_LINE = 500;
-const OUTPUT_MAX = 30000;          // characters of Bash output returned to the model
+const OUTPUT_MAX = 30000;          // truncateOutput's default
 export const BASH_DEFAULT_MS = 30 * 60 * 1000;   // the emulated CPU is slow: builds and installs take long
 export const BASH_MAX_MS = 2 * 60 * 60 * 1000;
 const FS_TIMEOUT_MS = 60000;       // Read/Write/Edit
@@ -141,8 +145,107 @@ export const DELEGATE_DEF = {
     },
 };
 
+export const ASK_TOOL = 'ask_user';
+
+/* Offered when createTools() gets an `ask` function (the page's question form).
+ * Sub-agents never get it: the user isn't reading along with them. */
+export const ASK_DEF = {
+    name: ASK_TOOL,
+    description: 'Pauses to ask the user one or more clarifying questions, and returns their answers. Use it when the request is ambiguous or a decision is genuinely theirs (a choice of approach, a destructive step), not for facts you can find out yourself. Put related questions in one call. Give each question 2 to 4 short suggested options; the user can also type an answer of their own unless allow_custom_input is false.',
+    input_schema: {
+        type: 'object',
+        properties: {
+            questions: {
+                type: 'array',
+                description: 'The questions, shown to the user together as a form.',
+                items: {
+                    type: 'object',
+                    properties: {
+                        id: { type: 'string', description: 'Short key the answer comes back under, e.g. auth_method.' },
+                        header: { type: 'string', description: 'Short title for the question, e.g. Auth.' },
+                        question: { type: 'string', description: 'The full question.' },
+                        options: { type: 'array', items: { type: 'string' }, description: '2 to 4 suggested answers.' },
+                        multi_select: { type: 'boolean', description: 'The user may pick several options. Default: false.' },
+                        allow_custom_input: { type: 'boolean', description: 'The user may type their own answer. Default: true.' },
+                    },
+                    required: ['id', 'question', 'options'],
+                },
+            },
+        },
+        required: ['questions'],
+    },
+};
+
+const ASK_MAX_QUESTIONS = 10;
+const ASK_MAX_OPTIONS = 8;
+
+/**
+ * The ask_user input as a list of questions: { id, header, question, options,
+ * multi, custom }. Takes the batch form, and also one question given at the top
+ * level ({ question, options, allow_custom_input }), which some models write.
+ * @throws {ToolError} what is wrong with it
+ */
+export function askQuestions(input) {
+    const list = Array.isArray(input?.questions) ? input.questions
+        : typeof input?.question === 'string' ? [{ ...input, id: input.id ?? 'answer' }] : null;
+    if (!list) throw new ToolError('Give "questions": a list of { id, question, options }.');
+    if (!list.length || list.length > ASK_MAX_QUESTIONS) throw new ToolError(`Ask 1 to ${ASK_MAX_QUESTIONS} questions at a time.`);
+    const seen = new Set();
+    return list.map((q, i) => {
+        if (!q || typeof q !== 'object') throw new ToolError(`Question ${i + 1} must be an object.`);
+        if (typeof q.question !== 'string' || !q.question.trim()) throw new ToolError(`Question ${i + 1} has no "question" text.`);
+        const options = q.options ?? [];
+        if (!Array.isArray(options) || options.some((o) => typeof o !== 'string')) {
+            throw new ToolError(`Question ${i + 1}: "options" must be a list of strings.`);
+        }
+        const custom = q.allow_custom_input !== false;
+        const opts = [...new Set(options.map((o) => o.trim()).filter(Boolean))].slice(0, ASK_MAX_OPTIONS);
+        if (!opts.length && !custom) throw new ToolError(`Question ${i + 1} offers no options and no way to type an answer.`);
+        let id = typeof q.id === 'string' && q.id.trim() ? q.id.trim().slice(0, 60) : `q${i + 1}`;
+        while (seen.has(id)) id += '_';
+        seen.add(id);
+        return {
+            id,
+            header: typeof q.header === 'string' ? q.header.trim().slice(0, 40) : '',
+            question: q.question.trim(),
+            options: opts,
+            multi: q.multi_select === true,
+            custom,
+        };
+    });
+}
+
+/**
+ * The tool result for the user's reply: { answers: { id: { picked:[...], text } } }
+ * or { declined: true, note? }.
+ */
+export function formatAnswers(questions, reply) {
+    if (!reply || reply.declined) {
+        return `The user dismissed the question${questions.length > 1 ? 's' : ''} without answering${reply?.note ? `, saying: ${reply.note}` : ''}. `
+            + 'Carry on with your best judgment and say what you assumed, or ask differently.';
+    }
+    const lines = questions.map((q) => {
+        const a = reply.answers?.[q.id] || {};
+        const parts = [...(a.picked || [])];
+        if (a.text?.trim()) parts.push(`${a.text.trim()} (typed by the user)`);
+        const label = q.header && q.header !== q.id ? `${q.id} (${q.header})` : q.id;
+        return `- ${label}: ${parts.length ? parts.join('; ') : '(no answer)'}`;
+    });
+    return `The user answered:\n${lines.join('\n')}`;
+}
+
 /** Every tool name the page can offer, for settings. */
-export const ALL_TOOL_NAMES = [...TOOL_DEFS.map((d) => d.name), SKILL_TOOL, DELEGATE_TOOL];
+export const ALL_TOOL_NAMES = [...TOOL_DEFS.map((d) => d.name), SKILL_TOOL, DELEGATE_TOOL, ASK_TOOL];
+
+/* Names compared without case or separators: bash, BASH, Ask-User, askUser. */
+const nameKey = (name) => String(name ?? '').toLowerCase().replace(/[\s_-]+/g, '');
+
+/** A tool name as the model wrote it, as one of `names`; the name itself if none matches. */
+export function resolveToolName(name, names = ALL_TOOL_NAMES) {
+    if (names.includes(name)) return name;
+    const key = nameKey(name);
+    return names.find((n) => nameKey(n) === key) ?? name;
+}
 
 export class ToolError extends Error {}
 
@@ -164,6 +267,7 @@ export function validateInput(schema, input) {
         if (spec.type === 'string' && typeof value !== 'string') return `"${key}" must be a string`;
         if (spec.type === 'integer' && !Number.isInteger(value)) return `"${key}" must be an integer`;
         if (spec.type === 'boolean' && typeof value !== 'boolean') return `"${key}" must be true or false`;
+        if (spec.type === 'array' && !Array.isArray(value)) return `"${key}" must be a list`;
         if (spec.enum && !spec.enum.includes(value)) return `"${key}" must be one of: ${spec.enum.join(', ')}`;
     }
     return null;
@@ -237,6 +341,20 @@ export function truncateOutput(text, max = OUTPUT_MAX) {
     return `${text.slice(0, keep)}\n[... ${text.length - keep * 2} characters omitted ...]\n${text.slice(-keep)}`;
 }
 
+/**
+ * Any tool's result, cut to `max` characters before it goes to the model, so one
+ * call can't fill the context. Mostly the start is kept, and some of the end.
+ */
+export function limitToolOutput(text, max) {
+    if (!(max > 0) || text.length <= max) return text;
+    const tail = Math.floor(max / 4);
+    const head = max - tail;
+    return `${text.slice(0, head)}\n[... ${(text.length - head - tail).toLocaleString()} characters omitted: this result was `
+        + `${text.length.toLocaleString()} characters, over the ${max.toLocaleString()}-character limit for one tool result. `
+        + 'Read files in parts (offset, limit), and narrow command output (grep, head, tail, or into a file to read in parts).]\n'
+        + `${text.slice(-tail)}`;
+}
+
 /* Exported variables a shell doesn't carry: the job's own, and the directory,
  * which the shell's cwd already holds. */
 const ENV_SKIP = new Set(['PWD', 'OLDPWD', 'SHLVL', 'AGENT_DIR', '_']);
@@ -292,6 +410,9 @@ const FILE_TOOLS = new Set(['Read', 'Edit', 'Write']);
  * tool while it holds skills. That tool reads the skills volume from the page, so
  * it doesn't need or wait for the VM.
  *
+ * `ask(questions, ctx)` adds the ask_user tool: it shows the questions (see
+ * askQuestions) and resolves to the user's reply (see formatAnswers).
+ *
  * `delegate(input, ctx)` adds the Delegate tool; it runs a sub-agent and resolves
  * to its report (see createDelegate in Agent.js). `isEnabled(name)` hides tools
  * the user turned off: they leave the list and refuse to run.
@@ -313,7 +434,7 @@ const FILE_TOOLS = new Set(['Read', 'Edit', 'Write']);
  * @param {{exec:Function}|Promise<{exec:Function}>} bridgeOrPromise
  */
 export function createTools(bridgeOrPromise, {
-    cwd = DEFAULT_CWD, readyTimeoutMs = READY_TIMEOUT_MS, skills = null, delegate = null, isEnabled = () => true,
+    cwd = DEFAULT_CWD, readyTimeoutMs = READY_TIMEOUT_MS, skills = null, delegate = null, ask = null, isEnabled = () => true,
     sync = null, files = null, bashTimeoutMs = () => BASH_DEFAULT_MS, env = () => ({}),
 } = {}) {
     const syncQuietly = async () => { try { await sync?.(); } catch { /* the call still runs */ } };
@@ -343,9 +464,10 @@ export function createTools(bridgeOrPromise, {
         return Number.isInteger(n) && n >= 1000 ? Math.min(n, BASH_MAX_MS) : BASH_DEFAULT_MS;
     };
     const defs = () => {
-        const skill = skills && skillToolDef(skills.list());
+        // Only the skills the user has left on (a SkillLibrary has enabled()).
+        const skill = skills && skillToolDef(skills.enabled ? skills.enabled() : skills.list());
         const base = TOOL_DEFS.map((d) => (d.name === 'Bash' ? bashDef(defaultTimeout()) : d));
-        return [...base, skill, delegate && DELEGATE_DEF].filter((d) => d && isEnabled(d.name));
+        return [...base, skill, delegate && DELEGATE_DEF, ask && ASK_DEF].filter((d) => d && isEnabled(d.name));
     };
     let bridge = null;
     let bootError = null;
@@ -358,9 +480,18 @@ export function createTools(bridgeOrPromise, {
         if (bridge || bootError) return;
         onOutput?.('[waiting for the VM to finish booting]\n');
         let timer, onAbort;
+        // Timed on pauses.now(): time the browser had the page stopped doesn't count.
+        const until = pauses.now() + readyTimeoutMs;
         const gaveUp = await Promise.race([
             bridgeReady.then(() => null),
-            new Promise((resolve) => { timer = setTimeout(() => resolve('timeout'), readyTimeoutMs); }),
+            new Promise((resolve) => {
+                const check = () => {
+                    const left = until - pauses.now();
+                    if (left <= 0) resolve('timeout');
+                    else timer = setTimeout(check, left);
+                };
+                check();
+            }),
             new Promise((resolve) => {
                 onAbort = () => resolve('aborted');
                 if (signal?.aborted) onAbort();
@@ -583,7 +714,8 @@ echo "$! $J"`,
                 if (next !== (startedEnv ?? next)) sh.env = next;
                 else sh.env ??= next;
             }
-            let text = truncateOutput(DEC.decode(r.out));
+            // Long output is cut by the agent (limitToolOutput), like every tool's result.
+            let text = DEC.decode(r.out);
             const notes = [];
             if (r.aborted) notes.push('Stopped by the user.');
             else if (r.timedOut) notes.push(`Timed out after ${Math.round(timeoutMs / 1000)} s and was killed.`);
@@ -604,9 +736,17 @@ echo "$! $J"`,
     async function runTool(name, input, ctx, sh) {
         const def = defs().find((d) => d.name === name);
         if (!def) return notOffered(name);
+        // The single-question form some models write: one entry of the batch.
+        if (name === ASK_TOOL && input && typeof input === 'object' && !input.questions && typeof input.question === 'string') {
+            input = { questions: [{ id: 'answer', ...input }] };
+        }
         const problem = validateInput(def.input_schema, input);
         if (problem) return { content: `Invalid input: ${problem}.`, isError: true };
         try {
+            if (name === ASK_TOOL) {
+                const questions = askQuestions(input);
+                return { content: formatAnswers(questions, await ask(questions, ctx)), isError: false };
+            }
             if (name === SKILL_TOOL || name === DELEGATE_TOOL) {
                 // Neither needs the VM: a sub-agent's own calls wait for it.
                 try {
@@ -646,9 +786,13 @@ echo "$! $J"`,
          * @returns {Promise<{content:string, isError:boolean}>}
          */
         run(name, input, ctx = {}) {
+            name = resolveToolName(name);
             if (exclude.includes(name)) return Promise.resolve({ content: `The ${name} tool is not available here.`, isError: true });
             return runTool(name, input, ctx, shellOf(shellName));
         },
+
+        /** The tool a call means: names match without case or separators (bash → Bash). */
+        resolve(name) { return resolveToolName(name); },
 
         /**
          * The same tools, sharing the shells and file ordering, minus `exclude`:

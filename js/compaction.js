@@ -64,11 +64,15 @@ export function renderTranscript(entries, maxChars) {
     return [head, `[… ${omitted} earlier entries omitted to fit …]`, ...tail].join('\n\n');
 }
 
-/** The message that replaces the history. */
-export function compactedMessage(summary, midTurn) {
+/**
+ * The message that replaces the history. `task`, for a sub-agent, is the task it
+ * was given, kept word for word: a summary may blur exactly what was asked.
+ */
+export function compactedMessage(summary, midTurn, task = null) {
     return '[Context compacted: the conversation so far was summarized to save space, and this summary '
         + 'replaces it. Files and changes in the VM are untouched; read them again if you need the details.]\n\n'
         + `${summary.trim()}\n\n`
+        + (task ? `[Your task, exactly as it was given to you:]\n${task}\n\n` : '')
         + (midTurn
             ? '[You were in the middle of this work: continue it from where the summary says it stopped.]'
             : '[The user\'s next message follows.]');

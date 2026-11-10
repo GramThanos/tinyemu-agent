@@ -19,6 +19,8 @@
  *                    the Delegate tool's sub-agents and for compaction summaries
  *   transcript()     the history as [{ role: user|assistant|call|result, text, isError? }]
  *   resetHistory(text)  replace the history with one user message (a compaction)
+ *   pendingCalls()   the calls of a last reply that have no results yet (a turn
+ *                    the page reloaded under): [{ id, name, input }]
  *   contextWindow    the model's window in tokens, or null if unknown
  *   maxOutput        tokens a reply may take, kept free in the window (optional)
  */
@@ -28,6 +30,8 @@
 import {
     COMPACT_PROMPT, compactedMessage, DEFAULT_CONTEXT_WINDOW, estimateTokens, isContextOverflow, renderTranscript,
 } from './compaction.js';
+import { pauses } from './pause.js';
+import { ASK_TOOL, DELEGATE_TOOL, limitToolOutput } from './tools.js';
 
 /* The built-in system prompt. {{VAR_ARCH}} and {{VAR_OS_NAME}} are filled in by
  * renderPrompt() with the running machine's processor and system, in the
@@ -58,6 +62,12 @@ export const MAX_STEPS = 100;
 export const SUBAGENT_MAX_STEPS = 50;
 export const EMPTY_RETRIES = 2;     // an empty reply is asked for again this many times
 const EMPTY_RETRY_MS = 1000;
+/* No tool result may take more than this share of the context window. */
+const TOOL_OUTPUT_SHARE = 0.25;
+
+/** The result of a call that never finished: the page reloaded under it. */
+export const INTERRUPTED = 'Interrupted: the page was reloaded while this call ran, so it did not finish and its result '
+    + 'is lost. It may have partly run; check its effects before relying on them.';
 
 /* A number, or a function giving one when it is read (a setting). */
 const valueOf = (v) => (typeof v === 'function' ? v() : v);
@@ -94,26 +104,75 @@ function slots(limit) {
     };
 }
 
+/* Why a sub-agent is asked once more for its report, by how its turn stopped. */
+const WRAP_UP = {
+    max_tokens: 'Your last response was cut off: it hit the output limit.',
+    max_steps: 'You have used all the steps you were given.',
+    empty: 'Your last response was empty.',
+    end: 'You stopped without writing a final message.',
+};
+const WRAP_UP_TRIES = 2;
+const WRAP_UP_STEPS = 2;
+const ERROR_RETRY_MS = 2000;
+const wrapUpPrompt = (why) => `[${why} Stop working now and write your final report for the agent that gave you `
+    + 'this task, without calling any more tools: what you did, what you found, the paths of what you created or '
+    + 'changed, and what failed or is left undone. Keep it concise: it is all that agent receives.]';
+
+/** Said to a sub-agent resumed after the page reloaded. */
+export const RESUME_NOTE = '[The page was reloaded while you worked, and your work was interrupted. Any tool call '
+    + 'that was running did not finish (its result says so); check its effects before relying on them. Carry on with '
+    + 'your task from where you were.]';
+
+/* Call every hook of `a`, then the same one of `b`. */
+function chainHooks(a, b) {
+    if (!b) return a;
+    const out = { ...b };
+    for (const [k, fn] of Object.entries(a)) {
+        out[k] = b[k] ? (...args) => { fn(...args); b[k](...args); } : fn;
+    }
+    return out;
+}
+
 /**
  * The Delegate tool's runner, for createTools({ delegate }): forks the calling
- * agent's provider into a new conversation, runs the task with `tools` (which
- * should leave Delegate out) and resolves to the sub-agent's final message.
+ * agent's provider into a new conversation, runs the task with the caller's tools
+ * less Delegate and ask_user (`tools` when the caller passes none) and resolves to
+ * the sub-agent's final message: only that reaches the caller, never its steps.
+ *
  * Each sub-agent gets its own shell (tools.forShell), so its `cd` and variables
  * don't move the caller's. Its progress goes to the call's onOutput; its usage to
- * `on.usage(u, kind)`, its compactions to `on.compacted` and its tool calls to
- * `on.toolEnd(call, result, stats)`. `context` is passed to its Agent, and `log`
- * gets its exchanges (see Agent). `system` is a prompt, or a function giving one
- * when each sub-agent starts. `maxSteps` and `maxConcurrent` (how many run at
- * once; more wait for a turn) are numbers or functions read when needed.
+ * `on.usage(u, kind, ctx)`, its compactions to `on.compacted(c, ctx)` and its tool
+ * calls to `on.toolEnd(call, result, stats, ctx)` (ctx: the Delegate call's).
+ * `context` is passed to its Agent, which compacts its context like any other,
+ * keeping its task word for word; `log(entry, ctx)` gets its exchanges. `system`
+ * is a prompt, or a function giving one when each sub-agent starts. `maxSteps`,
+ * `maxConcurrent` (how many run at once; more wait for a turn) and
+ * `toolOutputMax` are numbers or functions read when needed.
+ *
+ * A turn that ends without a report (cut off at the output limit, out of steps,
+ * an empty reply) is asked for one, without tools, up to WRAP_UP_TRIES times; an
+ * error is retried once. Only then does the call fail.
+ *
+ * `view(info)`, if given, is told about each sub-agent as it starts: info is
+ * { name, description, prompt, parent (the caller's meta), callId, shell, resume }.
+ * It may return { hooks (more Agent callbacks), meta, log(entry), attach(agent),
+ * done(status, text) } with status 'done', 'failed' or 'stopped': the page shows
+ * each sub-agent in a chat of its own with these.
+ *
+ * The returned function has `resume(input, ctx, state)`: carry on a sub-agent the
+ * page was reloaded under, from state { provider (its history imported), name,
+ * shell, view }. Calls left unanswered in that history get an "interrupted"
+ * result, and it is told so (RESUME_NOTE).
  */
 export function createDelegate({
     tools, system = SUBAGENT_PROMPT, maxSteps = SUBAGENT_MAX_STEPS, maxConcurrent = 0, on = {}, context = {}, log = null,
-    emptyRetries = EMPTY_RETRIES,
+    emptyRetries = EMPTY_RETRIES, toolOutputMax = null, view = null,
 }) {
     const running = slots(maxConcurrent);
     let count = 0;
-    return async ({ prompt, description }, { provider, signal, onOutput, agent: parent, callId } = {}) => {
-        if (!provider?.fork) throw new Error('This model connection cannot start a sub-agent.');
+    const run = async ({ prompt, description }, ctx = {}, resume = null) => {
+        const { provider, signal, onOutput, agent: parent, callId, meta, tools: callerTools } = ctx;
+        if (!resume && !provider?.fork) throw new Error('This model connection cannot start a sub-agent.');
         let lineStart = true;
         const out = (t) => { if (t) { lineStart = t.endsWith('\n'); onOutput?.(t); } };
         const line = (t) => out(`${lineStart ? '' : '\n'}${t}\n`);
@@ -122,57 +181,133 @@ export function createDelegate({
             line('… waiting: as many sub-agents as Settings allow are running');
             await running.acquire(signal);
         }
+        let v = {};
+        let status = 'failed';
+        let final = '';
         try {
             const n = ++count;
-            const name = `sub-agent ${n}`;
+            const name = resume?.name ?? `sub-agent ${n}`;
             const subSystem = typeof system === 'function' ? system() : system;
-            const subTools = tools.forShell ? tools.forShell(`sub-agent-${n}`) : tools;
+            // The caller's tools, so the shell starts where the caller's is.
+            const base = callerTools?.without ? callerTools.without(DELEGATE_TOOL, ASK_TOOL) : tools;
+            const shell = resume?.shell ?? `sub-agent-${n}`;
+            const subTools = base.forShell ? base.forShell(shell) : base;
+            const subProvider = resume?.provider ?? provider.fork({ system: subSystem, tools: subTools.defs });
+            v = view?.({
+                name, description, prompt, parent: meta ?? null, callId: callId ?? null, shell, resume: resume?.view ?? null,
+            }) || {};
             let report = '';   // the text of the latest step: after its last tool call, the report
+            let earlier = '';  // the last step's text that wasn't empty, if asking for a report fails
+            const own = {
+                stepStart() { if (report.trim()) earlier = report; report = ''; if (!lineStart) out('\n'); },
+                text(t) { report += t; out(t); },
+                toolStart(call) { line(`▸ ${call.name} ${toolArg(call)}`); },
+                toolEnd(call, result, stats) {
+                    if (result.isError) line(`  ✗ ${call.name}: ${result.content.split('\n')[0].slice(0, 200)}`);
+                    on.toolEnd?.(call, result, stats, ctx);
+                },
+                usage: (u, kind) => on.usage?.(u, kind, ctx),
+                retrying(why) { line(`  ↻ ${why}`); },
+                compacted(c) {
+                    line(`⟲ compacted the context: ${c.before.toLocaleString()} → ~${c.after.toLocaleString()} tokens`);
+                    on.compacted?.(c, ctx);
+                },
+                compactFailed(e) { line(`  ✗ compaction failed: ${e.message}`); },
+            };
             const sub = new Agent({
                 name,
-                provider: provider.fork({ system: subSystem, tools: subTools.defs }),
+                provider: subProvider,
                 tools: subTools,
                 maxSteps,
                 emptyRetries,
                 context,
-                log,
-                on: {
-                    stepStart() { report = ''; if (!lineStart) out('\n'); },
-                    text(t) { report += t; out(t); },
-                    toolStart(call) { line(`▸ ${call.name} ${toolArg(call)}`); },
-                    toolEnd(call, result, stats) {
-                        if (result.isError) line(`  ✗ ${call.name}: ${result.content.split('\n')[0].slice(0, 200)}`);
-                        on.toolEnd?.(call, result, stats);
-                    },
-                    usage: (u, kind) => on.usage?.(u, kind),
-                    retrying(why) { line(`  ↻ ${why}`); },
-                    compacted(c) {
-                        line(`⟲ compacted the context: ${c.before.toLocaleString()} → ~${c.after.toLocaleString()} tokens`);
-                        on.compacted?.(c);
-                    },
-                    compactFailed(e) { line(`  ✗ compaction failed: ${e.message}`); },
-                },
+                task: prompt,
+                meta: v.meta ?? null,
+                toolOutputMax,
+                log: (entry) => { log?.(entry, ctx); try { v.log?.(entry); } catch { /* never stops it */ } },
+                on: chainHooks(own, v.hooks),
             });
-            log?.({ agent: name, type: 'start', parent: parent ?? null, callId: callId ?? null, description, system: subSystem, tools: subTools.defs.map((d) => d.name), shell: subTools.shell ?? null });
-            const r = await sub.send(prompt, signal);
-            if (r.stop === 'aborted') throw new Error('Stopped by the user.');
-            const text = report.trim();
+            v.attach?.(sub);
+            if (!resume) {
+                sub._log('start', { parent: parent ?? null, callId: callId ?? null, description, system: subSystem, tools: subTools.defs.map((d) => d.name), shell });
+            } else {
+                sub._log('start', { resumed: true, parent: parent ?? null, callId: callId ?? null, description });
+            }
+
+            // An error is asked again once, from where the history stands.
+            const attempt = async (work) => {
+                try {
+                    return await work();
+                } catch (e) {
+                    if (signal?.aborted) return { stop: 'aborted' };
+                    line(`  ✗ ${String(e.message).split('\n')[0].slice(0, 200)}; asking again`);
+                    await sleep(ERROR_RETRY_MS, signal);
+                    if (signal?.aborted) return { stop: 'aborted' };
+                    try { return await sub.retry(signal); } catch (e2) { return { stop: 'error', detail: e2.message }; }
+                }
+            };
+            const start = () => {
+                if (!resume) return sub.send(prompt, signal);
+                // It may have finished just before the reload: its last word is the report.
+                const last = subProvider.transcript?.().at(-1);
+                if (!subProvider.pendingCalls?.().length && last?.role === 'assistant' && last.text?.trim()) {
+                    report = last.text;
+                    return { stop: 'end' };
+                }
+                // Its own cut-off calls are not run again: they come back "interrupted".
+                return sub.resumePending(signal, () => null, RESUME_NOTE);
+            };
+            let r = await attempt(start);
+            for (let tries = 0; tries < WRAP_UP_TRIES && !signal?.aborted; tries++) {
+                const why = WRAP_UP[r.stop];
+                if (!why || (r.stop === 'end' && report.trim())) break;
+                line(`  ↻ asking for its final report: ${why}`);
+                const steps = sub.maxSteps;
+                sub.maxSteps = WRAP_UP_STEPS;
+                try { r = await attempt(() => sub.send(wrapUpPrompt(why), signal)); } finally { sub.maxSteps = steps; }
+            }
+            if (r.stop === 'aborted' || signal?.aborted) { status = 'stopped'; throw new Error('Stopped by the user.'); }
+            const text = report.trim() || (r.stop !== 'end' ? earlier.trim() : '');
             if (r.stop !== 'end') {
                 const why = r.detail || r.stop;
                 if (!text) throw new Error(`The sub-agent stopped without a report: ${why}`);
-                return `${text}\n\n[The sub-agent stopped early: ${why}]`;
+                final = `${text}\n\n[The sub-agent stopped early: ${why}]`;
+            } else {
+                final = text || '(The sub-agent finished without writing a report.)';
             }
-            return text || '(The sub-agent finished without writing a report.)';
+            status = 'done';
+            return final;
+        } catch (e) {
+            final = e.message;
+            throw e;
         } finally {
             running.release();
+            try { v.done?.(status, final); } catch { /* the page's view never fails the call */ }
         }
     };
+    const delegate = (input, ctx) => run(input, ctx);
+    delegate.resume = (input, ctx, state) => run(input, ctx, state);
+    return delegate;
 }
 
 /* The argument that identifies a call best, for one-line progress. */
-export const TOOL_ARG = { Read: 'path', Edit: 'path', Write: 'path', Glob: 'pattern', Grep: 'pattern', Bash: 'command', skill: 'name', Delegate: 'description' };
+export const TOOL_ARG = {
+    Read: 'path', Edit: 'path', Write: 'path', Glob: 'pattern', Grep: 'pattern', Bash: 'command', skill: 'name', Delegate: 'description',
+};
+
+/** That argument's text; for ask_user, its first question. */
+export function toolArgText(call) {
+    const input = call?.input || {};
+    if (call?.name === ASK_TOOL) {
+        const q = Array.isArray(input.questions) ? input.questions[0]?.question : input.question;
+        const more = Array.isArray(input.questions) && input.questions.length > 1 ? ` (+${input.questions.length - 1} more)` : '';
+        return `${String(q ?? '')}${more}`;
+    }
+    return String(input[TOOL_ARG[call?.name]] ?? '');
+}
+
 function toolArg(call) {
-    const v = String(call.input?.[TOOL_ARG[call.name]] ?? '');
+    const v = toolArgText(call);
     const line = v.split('\n')[0];
     return line.length > 120 || v.includes('\n') ? `${line.slice(0, 120)}…` : line;
 }
@@ -205,10 +340,14 @@ export class Agent {
      *                                { agent, type, ... } with type user, response,
      *                                tool, compaction or error
      * @param {number|() => number} [opts.emptyRetries]  how often an empty reply is asked for again
+     * @param {*} [opts.meta]        passed to every tool call as ctx.meta
+     * @param {string} [opts.task]    a sub-agent's task, repeated after each compaction
+     * @param {number|() => number} [opts.toolOutputMax]  characters of one tool result the
+     *                                model gets (also capped at a quarter of the window)
      */
     constructor({
         provider, tools, on = {}, maxSteps = MAX_STEPS, context = {}, system = null, name = 'main', log = null,
-        emptyRetries = EMPTY_RETRIES,
+        emptyRetries = EMPTY_RETRIES, meta = null, task = null, toolOutputMax = null,
     }) {
         this.provider = provider;
         this.tools = tools;
@@ -217,6 +356,10 @@ export class Agent {
         this.name = name;
         this.log = log;
         this.emptyRetries = emptyRetries;
+        this.meta = meta;           // handed to tools in ctx.meta (the page: which chat)
+        this.task = task;           // a sub-agent's task, kept through compactions
+        this.toolOutputMax = toolOutputMax;
+        this.calls = new Map();     // running tool calls: id -> AbortController
         this._defsKey = null;   // the tool list the provider last got
         this.system = system;
         this._system = provider.system ?? null;   // the prompt the provider has
@@ -333,7 +476,7 @@ export class Agent {
         if (step.stop === 'aborted' || signal?.aborted) return { aborted: true };
         if (!summary.trim()) throw new Error(step.detail || `the summary came back empty (${step.stop})`);
 
-        const message = compactedMessage(summary, midTurn);
+        const message = compactedMessage(summary, midTurn, this.task);
         const before = this.used;
         provider.resetHistory(message);
         this.compactions++;
@@ -429,18 +572,139 @@ export class Agent {
         }
     }
 
+    /** Stop one running tool call; the turn goes on, and the model is told. */
+    cancelTool(id) {
+        const ctl = this.calls.get(id);
+        if (!ctl || ctl.signal.aborted) return false;
+        ctl.abort();
+        return true;
+    }
+
+    /** Ids of the tool calls running now. */
+    runningCalls() { return [...this.calls.keys()]; }
+
+    /* The most of one tool result the model gets: the setting, and never more
+     * than a quarter of the context window (about 4 characters a token). */
+    _outputCap() {
+        const set = valueOf(this.toolOutputMax);
+        const byWindow = Math.floor(this.context.limit(this.provider) * 4 * TOOL_OUTPUT_SHARE);
+        return Math.min(Number.isFinite(set) && set > 0 ? set : Infinity, byWindow > 0 ? byWindow : Infinity);
+    }
+
+    /*
+     * One tool call, with its own stop: the turn's signal stops it too. `run`,
+     * if given, does the work instead of the tools (a resumed sub-agent; one that
+     * returns null gets the "interrupted" result).
+     */
+    async _runCall(call, signal, run = null) {
+        const { tools, on, provider } = this;
+        if (signal?.aborted) return { id: call.id, content: 'Stopped by the user.', isError: true };
+        const ctl = new AbortController();
+        const stop = () => ctl.abort();
+        signal?.addEventListener('abort', stop, { once: true });
+        this.calls.set(call.id, ctl);
+        on.toolStart?.(call);
+        const started = Date.now();
+        let result;
+        try {
+            if (call.error) {
+                result = { content: call.error, isError: true };
+            } else {
+                const ctx = {
+                    signal: ctl.signal,
+                    onOutput: (t) => on.toolOutput?.(call, t),
+                    provider,   // Delegate forks it for a sub-agent
+                    agent: this.name,
+                    callId: call.id,
+                    meta: this.meta,
+                    tools,      // Delegate gives its sub-agent these, less itself
+                };
+                const work = run ? run(call, ctx) : tools.run(call.name, call.input, ctx);
+                // A stopped call answers at once, even if its tool doesn't watch the signal.
+                const stopped = new Promise((resolve) => {
+                    if (ctl.signal.aborted) resolve(null);
+                    ctl.signal.addEventListener('abort', () => resolve(null), { once: true });
+                });
+                result = await Promise.race([
+                    Promise.resolve(work).then(
+                        // A runner may answer with plain text, as Delegate's does.
+                        (r) => (typeof r === 'string' ? { content: r, isError: false } : r),
+                        (e) => ({ content: run ? e.message : `Tool failed: ${e.message}`, isError: true }),
+                    ),
+                    stopped,
+                ]);
+                result ??= ctl.signal.aborted ? { content: 'Stopped by the user.', isError: true } : { content: INTERRUPTED, isError: true };
+            }
+        } finally {
+            signal?.removeEventListener('abort', stop);
+            this.calls.delete(call.id);
+        }
+        let content = String(result.content ?? '');
+        if (ctl.signal.aborted && !signal?.aborted) {
+            content = `${content}${content ? '\n' : ''}[The user stopped this tool call; the rest of your work goes on. `
+                + 'Don\'t simply run it again: consider why it was stopped.]';
+        }
+        result = { content: limitToolOutput(content, this._outputCap()), isError: !!result.isError || ctl.signal.aborted };
+        const ms = Date.now() - started;
+        this._log('tool', { id: call.id, name: call.name, input: call.input, content: result.content, isError: result.isError, ms });
+        on.toolEnd?.(call, result, { ms });
+        return { id: call.id, ...result };
+    }
+
+    /* All calls in a step run at once. They start in order, and a provider gets
+     * one result per call, in order, even after a stop. Names are matched
+     * loosely (bash → Bash), so the cards and the log show the tool that ran. */
+    async _runCalls(calls, signal, run = null) {
+        const resolved = calls.map((c) => ({ ...c, name: this.tools.resolve ? this.tools.resolve(c.name) : c.name }));
+        return Promise.all(resolved.map((call) => this._runCall(call, signal, run)));
+    }
+
+    /**
+     * Carry on a turn that was cut off (the page reloaded): the calls its history
+     * left without results go to `run(call, ctx)`, which resolves to a result,
+     * its text, or null for the "interrupted" result (with no `run`, the tools
+     * run them again); `note` is added as a user message; then the model goes on.
+     */
+    async resumePending(signal, run = null, note = null) {
+        this._prepare();
+        const pending = this.provider.pendingCalls?.() ?? [];
+        if (pending.length) this.provider.addToolResults(await this._runCalls(pending, signal, run));
+        if (signal?.aborted) return { stop: 'aborted' };
+        if (note) this.provider.addUser(note);
+        this._log('user', { resumed: true, ...(note ? { text: note } : {}) });
+        return this._run(signal);
+    }
+
+    /** Answer every call the history left open with `text`, without running anything. */
+    closePending(text = INTERRUPTED) {
+        const pending = this.provider.pendingCalls?.() ?? [];
+        if (pending.length) this.provider.addToolResults(pending.map((c) => ({ id: c.id, content: text, isError: true })));
+        return pending.length;
+    }
+
     async _run(signal) {
-        const { provider, tools, on } = this;
+        const { on } = this;
         let overflowRetried = false;
+        let pauseRetried = false;
         for (let i = 0; i < valueOf(this.maxSteps); i++) {
             // A long turn can fill the context between its steps.
             if (i > 0) await this._autoCompact(signal, true);
             if (signal?.aborted) return { stop: 'aborted' };
             on.stepStart?.();
+            const pausedBefore = pauses.total;
             let step;
             try {
                 step = await this._step(signal, i);
             } catch (e) {
+                if (signal?.aborted) return { stop: 'aborted' };
+                // The browser stopped the page mid-request (a frozen tab, a sleeping
+                // computer), and the connection didn't survive: ask once more.
+                if (!pauseRetried && pauses.total > pausedBefore && !isContextOverflow(e)) {
+                    pauseRetried = true;
+                    on.retrying?.(`The page was paused while waiting for the model (${e.message}); asking again.`);
+                    i--;
+                    continue;
+                }
                 // The API said it doesn't fit: compact once and send it again.
                 if (overflowRetried || !isContextOverflow(e)) {
                     this._log('error', { step: i, message: e.message });
@@ -458,28 +722,7 @@ export class Agent {
                 if (step.stop === 'end' && !signal?.aborted && this._inject(false)) continue;
                 return step;
             }
-
-            // All calls in a step run at once. They start in order, and a provider
-            // gets one result per call, in order, even after a stop.
-            const results = await Promise.all(step.toolCalls.map(async (call) => {
-                if (signal?.aborted) return { id: call.id, content: 'Stopped by the user.', isError: true };
-                on.toolStart?.(call);
-                const started = Date.now();
-                const result = call.error
-                    ? { content: call.error, isError: true }
-                    : await tools.run(call.name, call.input, {
-                        signal,
-                        onOutput: (t) => on.toolOutput?.(call, t),
-                        provider,   // Delegate forks it for a sub-agent
-                        agent: this.name,
-                        callId: call.id,
-                    });
-                const ms = Date.now() - started;
-                this._log('tool', { id: call.id, name: call.name, input: call.input, content: result.content, isError: result.isError, ms });
-                on.toolEnd?.(call, result, { ms });
-                return { id: call.id, ...result };
-            }));
-            provider.addToolResults(results);
+            this.provider.addToolResults(await this._runCalls(step.toolCalls, signal));
             if (signal?.aborted) return { stop: 'aborted' };
             this._inject(true);
         }

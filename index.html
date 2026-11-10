@@ -100,16 +100,18 @@
   summary .tstat { float: right; margin-left: 8px; color: #8a93a2; font-size: 11px; }
   summary .tshell { color: #c99a2e; }
   /* Messages waiting for the agent's next step */
-  #queued { display: contents; }
+  .queued { display: contents; }
   .msg.user.queued { opacity: .75; border: 1px dashed #7fb4ff; background: #1d2633; }
   .msg.user .qnote { display: flex; gap: 8px; align-items: center; margin-top: 4px; color: #8a93a2; font: 11px system-ui, sans-serif; white-space: normal; }
   .msg.user .qnote button { padding: 0 6px; font-size: 11px; }
   .msg.problem .actions { display: flex; gap: 6px; margin-top: 4px; }
   .msg.problem .actions button { padding: 2px 8px; font-size: 12px; }
-  #log.hide-thinking details.thinking { display: none; }
-  #log { flex: 1; overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+  #chatView.hide-thinking details.thinking { display: none; }
+  /* One log per chat; only the open one shows. */
+  #logs { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .log { flex: 1; min-height: 0; overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
   .msg { white-space: pre-wrap; overflow-wrap: anywhere; }
-  #chatTabs { display: flex; gap: 4px; align-items: center; padding: 6px 10px 0; overflow-x: auto; flex-shrink: 0; border-bottom: 1px solid #2a2e37; }
+  #chatTabs { display: flex; gap: 4px; align-items: center; padding: 6px 10px 0; overflow-x: auto; scrollbar-width: thin; flex-shrink: 0; border-bottom: 1px solid #2a2e37; }
   #chatTabs .ctab { display: flex; align-items: center; max-width: 180px; flex-shrink: 0; border: 1px solid #2a2e37; border-bottom: 0; border-radius: 6px 6px 0 0; background: #16191e; }
   #chatTabs .ctab[aria-selected=true] { background: #26364f; border-color: #3a4c69; }
   #chatTabs .ctab .cname { padding: 3px 4px 3px 9px; border: 0; background: none; color: #c8d0dc; font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 150px; cursor: pointer; }
@@ -118,6 +120,37 @@
   #chatTabs .ctab .cclose:hover { color: #e88; }
   #chatTabs #chatNew { flex-shrink: 0; padding: 1px 8px; font-size: 13px; }
   #chatTabs button:disabled { cursor: default; }
+  /* A sub-agent's chat sits after its parent's, smaller. */
+  #chatTabs .ctab.sub { border-style: dashed; }
+  #chatTabs .ctab.sub .cname { font-size: 11px; font-style: italic; color: #a9b4c4; padding-left: 6px; }
+  #chatTabs .ctab .cbusy { float: none; width: 9px; height: 9px; margin: 0 0 0 7px; border-width: 2px; flex-shrink: 0; }
+  #chatTabs .ctab .cmark { margin-left: 6px; color: #c99a2e; font-weight: 700; font-size: 12px; }
+  #chatTabs .ctab .cstate { margin-left: 6px; font-size: 11px; }
+  #chatTabs .ctab .cstate.failed { color: #e88; }
+  #chatTabs .ctab .cstate.done { color: #6c6; }
+  #chatTabs #chatInfoBtn { flex-shrink: 0; margin-left: auto; padding: 1px 8px; font-size: 13px; border-radius: 50%; }
+  #chatInfoBtn[aria-expanded=true] { border-color: #7fb4ff; }
+  #chatView { position: relative; }
+  #chatInfo { position: absolute; z-index: 5; right: 10px; top: 34px; width: min(420px, calc(100% - 20px)); max-height: 70%; overflow: auto; padding: 10px 12px; background: #16191e; border: 1px solid #3a4c69; border-radius: 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, .5); }
+  #chatInfo h3 { margin: 0 0 6px; font-size: 13px; overflow-wrap: anywhere; }
+  #chatInfo dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; margin: 0; font-size: 12px; }
+  #chatInfo dt { color: #8a93a2; }
+  #chatInfo dd { margin: 0; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+  /* Stop / open buttons on a tool card's summary line */
+  summary .tbtn { float: right; margin: -1px 0 0 6px; padding: 0 6px; font: 11px system-ui, sans-serif; line-height: 16px; }
+  summary .tbtn.stop { color: #e88; }
+  /* ask_user: the agent's questions, in place of the message box */
+  #askBox { flex: 1; min-width: 0; max-height: 45vh; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+  #askBox .askhead { color: #c99a2e; font-size: 12px; }
+  #askBox fieldset { margin: 0; padding: 6px 10px 8px; border: 1px solid #3a3f4a; border-radius: 7px; }
+  #askBox legend { padding: 0 4px; color: #7fb4ff; font-size: 12px; font-weight: 600; }
+  #askBox .askq { white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: 6px; }
+  #askBox .askopts { display: flex; flex-wrap: wrap; gap: 6px; }
+  #askBox .askopts button[aria-pressed=true] { background: #26364f; border-color: #7fb4ff; color: #fff; }
+  #askBox .askother { margin-top: 6px; width: 100%; }
+  #askBox .askhint { color: #8a93a2; font-size: 11px; }
+  #askBox .askbar { display: flex; gap: 8px; align-items: center; }
+  #askBox .askbar .go { border-color: #7fb4ff; }
   .msg.waiting { display: flex; gap: 8px; align-items: center; color: #8a93a2; }
   .msg.waiting .spinner { float: none; margin: 0; flex-shrink: 0; }
   .mstat { display: block; margin-top: 4px; color: #8a93a2; font: 11px system-ui, sans-serif; white-space: normal; user-select: none; }
@@ -166,7 +199,9 @@
   #skillsList { flex: 1; min-height: 0; overflow: auto; padding: 4px 0; }
   #skillsPane.dropping #skillsList { outline: 2px dashed #7fb4ff; outline-offset: -6px; background: #161b24; }
   .skill { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: start; padding: 7px 12px; border-bottom: 1px solid #1f232b; }
-  .skill .sid { font: 600 12px ui-monospace, monospace; color: #7fb4ff; overflow-wrap: anywhere; }
+  .skill .sid { display: flex; flex-wrap: wrap; gap: 0 4px; align-items: center; font: 600 12px ui-monospace, monospace; color: #7fb4ff; overflow-wrap: anywhere; cursor: pointer; }
+  .skill .sid input { margin: 0 4px 0 0; accent-color: #7fb4ff; }
+  .skill.off .sid, .skill.off .sdesc { opacity: .55; }
   .skill .sname { color: #8a93a2; font-weight: 400; }
   .skill .sdesc { grid-column: 1; color: #c4cad4; font-size: 12px; overflow-wrap: anywhere; }
   .skill .sbuttons { display: flex; gap: 6px; }
@@ -237,8 +272,10 @@
     </div>
     <div id="chatView" role="tabpanel" aria-labelledby="tabChat">
       <div id="chatTabs" role="tablist" aria-label="Chats"></div>
-      <div id="log" aria-live="polite"><div id="queued"></div></div>
+      <div id="chatInfo" role="dialog" aria-label="This chat's figures" hidden></div>
+      <div id="logs"></div>
       <form id="chat">
+        <div id="askBox" role="group" aria-label="The agent's questions" hidden></div>
         <textarea id="prompt" placeholder="Ask the agent to do something in the VM. Enter sends, Shift+Enter adds a line." disabled></textarea>
         <button id="send" disabled>Send</button>
       </form>
@@ -251,6 +288,9 @@
       <div class="toggles">
         <label><input type="checkbox" id="optMentions"> Replace <code>@skill</code> mentions in my messages with the skill's instructions</label>
         <label><input type="checkbox" id="optThinking"> Show the model's thinking in the chat</label>
+        <label><input type="checkbox" id="optPageFiles"> Serve Read, Edit and Write of <code>/workspace</code> and
+          <code>/agent/skills</code> from the page, which is faster
+          <span class="hint">(off: every file call goes through the VM, as for other paths)</span></label>
       </div>
       <h2>Agent</h2>
       <div class="toggles">
@@ -258,6 +298,9 @@
           <span class="hint">(a step is one reply from the model; each reply can call several tools)</span></label>
         <label>Ask again <input id="optEmptyRetries" type="number" min="0" max="10" step="1" size="3"> times when the model
           returns an empty response, before stopping</label>
+        <label>Give the model at most <input id="optToolOutputMax" type="number" step="1000" size="8"> characters of one
+          tool result <span class="hint">(and never more than a quarter of the context window; the rest is cut out, with a
+          note saying so)</span></label>
       </div>
       <h2>System prompt <span class="hint" id="systemState"></span></h2>
       <p class="hint">The instructions the model gets before the conversation. A saved change applies from your
@@ -345,7 +388,7 @@
     </div>
     <div id="skillsPane" role="tabpanel" aria-labelledby="tabSkills" hidden>
       <div id="skillsBar">
-        <span id="skillsHint">In the VM at <code>/agent/skills</code>. Type <code>@id</code> in a prompt to include a skill.</span>
+        <span id="skillsHint">In the VM at <code>/agent/skills</code>. Type <code>@id</code> in a prompt to include a skill; untick one to keep it from the agent.</span>
         <button id="skillsImport" title="Import a skill folder, or a folder of skill folders (or drop them here)">Import folder</button>
         <input id="skillsPick" type="file" webkitdirectory multiple hidden>
       </div>
@@ -411,10 +454,13 @@ import { GuestBridge, VOLUME, WORKSPACE, WORKSPACE_VOLUME } from './js/GuestBrid
 import { asText, FileBrowser, formatSize, readEntry } from './js/FileBrowser.js';
 import { ChatStore, MAX_EXCHANGES, MemoryChatStore, newChat, pickChat, titleFrom } from './js/chats.js';
 import { LinkError, LinkedFolders } from './js/LinkedFolders.js';
-import { ALL_TOOL_NAMES, BASH_DEFAULT_MS, BASH_MAX_MS, createTools, DELEGATE_TOOL, ENV_NAME, shQuote } from './js/tools.js';
+import {
+    ALL_TOOL_NAMES, ASK_TOOL, BASH_DEFAULT_MS, BASH_MAX_MS, createTools, DELEGATE_TOOL, ENV_NAME, shQuote, ToolError,
+} from './js/tools.js';
+import { pauses } from './js/pause.js';
 import { SKILL_FILE, SkillLibrary, SKILLS_DIR, SKILLS_STORAGE_KEY, SKILLS_VOLUME } from './js/skills.js';
 import {
-    Agent, createDelegate, EMPTY_RETRIES, MAX_STEPS, renderPrompt, SUBAGENT_MAX_STEPS, subagentPrompt, SYSTEM_PROMPT, TOOL_ARG,
+    Agent, createDelegate, EMPTY_RETRIES, MAX_STEPS, renderPrompt, SUBAGENT_MAX_STEPS, subagentPrompt, SYSTEM_PROMPT, toolArgText,
 } from './js/Agent.js';
 import { DEFAULT_CONTEXT_WINDOW } from './js/compaction.js';
 import { CLAUDE_EFFORTS, ClaudeProvider, listClaudeModels } from './js/providers/claude.js';
@@ -487,21 +533,67 @@ function flushConsole() {
     if (atEnd) term.scrollTop = term.scrollHeight;
 }
 
-/* ---- chat log. Guest and model text only ever go in as textContent. --- */
+/* ---- chats and their logs. Guest and model text only ever go in as textContent. --- */
 
-const log = $('log');
-/* Messages queued during a turn stay at the bottom, below everything the turn adds. */
-const queuedBox = $('queued');
-const logAppend = (el) => log.insertBefore(el, queuedBox);
+/* The chats (js/chats.js), and the one open. */
+let chats = [];
+let chat = null;
+const chatById = (id) => chats.find((c) => c.id === id) || null;
+
+/* A session is what a chat has while the page runs: its own log element, its
+ * agent, its turn in progress, messages queued during it, questions waiting
+ * for an answer. Several chats can work at once; only the open one is shown.
+ * Drawing functions (addMessage, addToolCard, ...) draw into `here()`: the open
+ * chat, or the session whose agent called a hook (inSession). */
+const sessions = new Map();   // chat id -> session
+let drawTo = null;
+function sessionOf(c) {
+    let s = sessions.get(c.id);
+    if (!s) {
+        const el = document.createElement('div');
+        el.className = 'log';
+        el.setAttribute('aria-live', 'polite');
+        el.hidden = c !== chat;
+        const queuedBox = document.createElement('div');
+        queuedBox.className = 'queued';   // messages queued during a turn stay last
+        el.append(queuedBox);
+        $('logs').append(el);
+        s = {
+            chat: c, el, queuedBox, drawn: false,
+            agent: null, label: '', conn: null,   // conn: the connection the agent was made from
+            running: null,                         // AbortController of a turn (or compaction), or a sub-agent's stand-in
+            waiting: null, queued: new Map(), cards: new Map(), asks: [], draft: '',
+        };
+        sessions.set(c.id, s);
+    }
+    return s;
+}
+const ses = () => sessionOf(chat);
+const here = () => drawTo || ses();
+function inSession(s, fn) {
+    const prev = drawTo;
+    drawTo = s;
+    try { return fn(); } finally { drawTo = prev; }
+}
+function dropSession(c) {
+    const s = sessions.get(c.id);
+    if (!s) return;
+    s.el.remove();
+    sessions.delete(c.id);
+}
+const anyRunning = () => [...sessions.values()].some((s) => s.running);
+
+const logAppend = (el) => { const s = here(); s.el.insertBefore(el, s.queuedBox); };
 function follow() {
-    if (log.scrollTop + log.clientHeight >= log.scrollHeight - 80) log.scrollTop = log.scrollHeight;
+    const L = here().el;
+    if (L.scrollTop + L.clientHeight >= L.scrollHeight - 80) L.scrollTop = L.scrollHeight;
 }
 function addMessage(kind, text = '') {
     const el = document.createElement('div');
     el.className = `msg ${kind}`;
     el.textContent = text;
     logAppend(el);
-    log.scrollTop = log.scrollHeight;
+    here().el.scrollTop = here().el.scrollHeight;
     return el;
 }
 
@@ -525,10 +617,10 @@ function setMessageStat(el, text, title) {
 const tokensPerSecond = (tokens, ms) => (ms > 0 ? tokens / (ms / 1000) : 0);
 
 /* "Waiting for the model…", with a spinner and the seconds so far, from when a
- * request goes out until its first visible output (or its end). */
-let waiting = null;
+ * request goes out until its first visible output (or its end). One per chat. */
 function showWaiting(text) {
     hideWaiting();
+    const s = here();
     const el = addMessage('note waiting');
     const spin = document.createElement('span');
     spin.className = 'spinner';
@@ -536,24 +628,28 @@ function showWaiting(text) {
     const label = document.createElement('span');
     el.append(spin, label);
     const started = Date.now();
-    const tick = () => {
-        const s = Math.floor((Date.now() - started) / 1000);
-        label.textContent = s ? `${waiting.text} ${s} s` : waiting.text;
+    const w = { el, text };
+    w.tick = () => {
+        const secs = Math.floor((Date.now() - started) / 1000);
+        label.textContent = secs ? `${w.text} ${secs} s` : w.text;
     };
-    waiting = { el, text, tick, clock: setInterval(() => tick(), 1000) };
-    tick();
+    w.clock = setInterval(w.tick, 1000);
+    s.waiting = w;
+    w.tick();
     follow();
 }
 function setWaitingText(text) {
-    if (!waiting) return;
-    waiting.text = text;
-    waiting.tick();
+    const w = here().waiting;
+    if (!w) return;
+    w.text = text;
+    w.tick();
 }
 function hideWaiting() {
-    if (!waiting) return;
-    clearInterval(waiting.clock);
-    waiting.el.remove();
-    waiting = null;
+    const s = here();
+    if (!s.waiting) return;
+    clearInterval(s.waiting.clock);
+    s.waiting.el.remove();
+    s.waiting = null;
 }
 
 /* A problem with buttons under it: [label, onclick] pairs. Each runs once. */
@@ -583,6 +679,18 @@ const cardsOpen = {
     set(open) { try { localStorage.setItem(CARDS_OPEN, open ? '1' : '0'); } catch { /* not remembered */ } },
 };
 
+/* A small button on a card's summary line, which doesn't open or close the card. */
+function cardButton(c, cls, label, title, onclick) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `tbtn ${cls}`;
+    b.textContent = label;
+    b.title = title;
+    b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); onclick(); });
+    c.stat.after(b);
+    return b;
+}
+
 function addToolCard(call) {
     const card = document.createElement('details');
     const summary = document.createElement('summary');
@@ -603,7 +711,7 @@ function addToolCard(call) {
         sh.textContent = ` [${call.input.shell}]`;
         summary.append(sh);
     }
-    summary.append(` ${call.input?.[TOOL_ARG[call.name]] ?? ''}`);
+    summary.append(` ${toolArgText(call)}`);
     const input = document.createElement('pre');
     input.className = 'input';
     input.textContent = JSON.stringify(call.input, null, 2);
@@ -614,10 +722,37 @@ function addToolCard(call) {
     // handlers run; `toggle` events would also fire for the line above.
     summary.addEventListener('click', () => setTimeout(() => cardsOpen.set(card.open)));
     logAppend(card);
-    log.scrollTop = log.scrollHeight;
+    here().el.scrollTop = here().el.scrollHeight;
+    const c = { card, summary, output, spinner, stat, clock: 0, stop: null, open: null, live: false };
+    startCardClock(c);
+    return c;
+}
+function startCardClock(c) {
     const started = Date.now();
-    const clock = setInterval(() => { stat.textContent = seconds(Math.round((Date.now() - started) / 1000) * 1000); }, 1000);
-    return { card, output, spinner, stat, clock };
+    clearInterval(c.clock);
+    c.clock = setInterval(() => { c.stat.textContent = seconds(Math.round((Date.now() - started) / 1000) * 1000); }, 1000);
+}
+
+/* A card drawn from a saved chat as interrupted, running again: its turn was resumed. */
+function reviveToolCard(c) {
+    c.card.classList.remove('failed');
+    c.stat.textContent = '';
+    c.stat.title = '';
+    c.spinner = document.createElement('span');
+    c.spinner.className = 'spinner';
+    c.spinner.title = 'running';
+    c.summary.prepend(c.spinner);
+    if (c.ev) { c.ev.done = false; c.ev.statText = ''; c.ev.statTitle = ''; }
+    startCardClock(c);
+}
+
+/* A Delegate card's button that opens its sub-agent's chat. */
+function linkSubCard(c, sub) {
+    if (!c || c.open) return;
+    c.open = cardButton(c, 'open', 'open ↗', 'Open this sub-agent\'s conversation (read-only)', () => switchChat(sub.id));
+}
+function subChatOf(parentId, callId) {
+    return chats.find((x) => x.kind === 'sub' && x.parent === parentId && x.callId === callId) || null;
 }
 
 /* A finished card's stats line: time, lines and size of what came back. */
@@ -647,29 +782,34 @@ function finishToolCard(c, { output, isError, statText, statTitle }) {
     c.card.classList.toggle('failed', !!isError);
     c.spinner.remove();
     clearInterval(c.clock);
+    c.stop?.remove();
+    c.stop = null;
+    c.live = false;
     if (statText) { c.stat.textContent = statText; c.stat.title = statTitle || ''; }
     else c.stat.textContent = '';
 }
 
-function uiHooks() {
+/* The agent's callbacks for one chat's session: everything they draw and record
+ * goes to that chat, open or not. */
+function uiHooks(s) {
+    if (!s.drawn) drawSession(s);   // what the chat had comes first
     let textEl = null;
     let thinkEl = null;
     let textEv = null;         // the chat events (see js/chats.js) being written
     let thinkEv = null;
     let compactingEl = null;   // the "compacting…" note while a summary is written
-    const cards = new Map();   // call id -> { card, output, spinner, stat, clock, ev }
     // One model reply (a step): when it was asked for, its first streamed token,
     // and where its stats go once the provider reports its usage.
     let step = null;
     const firstToken = () => { if (step && !step.first) step.first = Date.now(); };
-    return {
+    const hooks = {
         stepStart() {
             textEl = null;
             thinkEl = null;
             textEv = null;
             thinkEv = null;
             step = { start: Date.now(), first: 0, textEl: null, thinkEl: null, textEv: null, thinkEv: null, pending: null };
-            showWaiting(`Waiting for ${agentLabel || 'the model'}…`);
+            showWaiting(`Waiting for ${s.label || 'the model'}…`);
         },
         text(t) {
             firstToken();
@@ -680,8 +820,8 @@ function uiHooks() {
                 if (step) { step.textEl = textEl; step.textEv = textEv; }
             }
             // Before the stats line, if a later chunk of the same reply arrives.
-            const s = textEl.querySelector(':scope > .mstat');
-            if (s) s.before(t); else textEl.append(t);
+            const st = textEl.querySelector(':scope > .mstat');
+            if (st) st.before(t); else textEl.append(t);
             textEv.text += t;
             chatChanged();
             follow();
@@ -690,7 +830,7 @@ function uiHooks() {
             firstToken();
             // Hidden thinking (Settings) shows nothing, so keep the indicator, saying so.
             if (settings.thinking) hideWaiting();
-            else setWaitingText(`${agentLabel || 'The model'} is thinking…`);
+            else setWaitingText(`${s.label || 'The model'} is thinking…`);
             if (!thinkEl) {
                 const { box, pre } = addThinkingBox();
                 thinkEl = pre;
@@ -704,20 +844,34 @@ function uiHooks() {
         toolStart(call) {
             hideWaiting();
             textEl = null;
-            const c = addToolCard(call);
-            c.ev = recordChat({ k: 'tool', call, output: '', isError: false, statText: '', statTitle: '', title: '', done: false });
-            cards.set(call.id, c);
+            // A card the saved chat drew as interrupted comes back: its turn was resumed.
+            let c = s.cards.get(call.id);
+            if (c && !c.live && c.ev && !c.ev.done) {
+                reviveToolCard(c);
+            } else {
+                c = addToolCard(call);
+                c.ev = recordChat({ k: 'tool', call, output: '', isError: false, statText: '', statTitle: '', title: '', done: false });
+                s.cards.set(call.id, c);
+            }
+            c.live = true;
+            c.stop = cardButton(c, 'stop', '■ stop', 'Stop this call only; the agent carries on and is told', () => {
+                if (s.agent?.cancelTool(call.id) && c.stop) { c.stop.disabled = true; c.stop.textContent = 'stopping…'; }
+            });
+            const sub = call.name === DELEGATE_TOOL && subChatOf(s.chat.id, call.id);
+            if (sub) linkSubCard(c, sub);
             // A reply with only tool calls: its stats go on the first card's tooltip.
             if (step?.pending) { c.card.title = c.ev.title = step.pending; step.pending = null; }
         },
         toolOutput(call, t) {
-            const c = cards.get(call.id);
+            const c = s.cards.get(call.id);
+            if (!c) return;
             c.output.append(t);
             c.output.scrollTop = c.output.scrollHeight;
             follow();
         },
         toolEnd(call, result, stats = {}) {
-            const c = cards.get(call.id);
+            const c = s.cards.get(call.id);
+            if (!c) return;
             // A sub-agent's progress stays above its report; other output is replaced.
             const output = call.name === DELEGATE_TOOL && c.output.textContent
                 ? `${c.output.textContent}\n\n── ${result.isError ? 'failed' : 'report'} ──\n${result.content}`
@@ -726,7 +880,7 @@ function uiHooks() {
             if (Number.isFinite(stats.ms)) {
                 end.statText = toolStatText(result, stats.ms);
                 end.statTitle = `Ran for ${stats.ms.toLocaleString()} ms${result.isError ? ', and failed' : ''}`;
-                countTool(call.name, stats.ms, result.isError);
+                countTool(s.chat, call.name, stats.ms, result.isError);
             }
             finishToolCard(c, end);
             Object.assign(c.ev, end, { done: true });
@@ -735,9 +889,9 @@ function uiHooks() {
             if (!$('filesPane').hidden) files.refresh();   // the call may have changed /workspace
         },
         retrying(why) { addChatNote('note', `↻ ${why}`); },
-        injected(item) { queued.get(item.id)?.deliver(); },
+        injected(item) { s.queued.get(item.id)?.deliver(); },
         usage(u, kind) {
-            addUsage('main', u, kind);
+            addUsage(s.chat, 'main', u, kind);
             if (kind !== 'compaction') hideWaiting();
             if (kind === 'compaction' || !step) return;
             // Speed: output tokens (thinking included) over the time they streamed,
@@ -767,7 +921,7 @@ function uiHooks() {
             }
             chatChanged();
         },
-        context() { renderContext(); },
+        context() { if (s.chat === chat) renderContext(); },
         compactStart() {
             textEl = null;
             compactingEl = addMessage('note', '⟲ Compacting the conversation to free context…');
@@ -775,10 +929,10 @@ function uiHooks() {
         compacted(c) {
             compactingEl?.remove();
             compactingEl = null;
-            compactions.main++;
+            s.chat.compactions.main++;
             addCompactionCard(c);
             recordChat({ k: 'compaction', c, who: 'the conversation' });
-            renderContext();
+            if (s.chat === chat) renderContext();
         },
         compactFailed(e) {
             compactingEl?.remove();
@@ -786,6 +940,8 @@ function uiHooks() {
             addChatNote('problem', `Could not compact the conversation (${e.message}); carrying on without.`);
         },
     };
+    for (const [k, fn] of Object.entries(hooks)) hooks[k] = (...args) => inSession(s, () => fn(...args));
+    return hooks;
 }
 
 /* ---- model picker ----------------------------------------------------- */
@@ -863,7 +1019,7 @@ function forgetConnection() {
     $('forget').hidden = true;
     providerChanged();
     addMessage('note', 'Deleted the saved connection from this browser. '
-        + (agent ? 'The current conversation carries on until you reload or pick another model.' : ''));
+        + (connection ? 'The current conversations carry on until you reload or pick another model.' : ''));
 }
 
 let listing = null;   // AbortController of the model listing in progress
@@ -930,9 +1086,11 @@ const LIMITS = {
     bashTimeoutMin: [BASH_DEFAULT_MS / 60000, 1, BASH_MAX_MS / 60000],   // Bash's default timeout
     subMaxSteps: [SUBAGENT_MAX_STEPS, 1, 10000], // a sub-agent's replies
     subMaxConcurrent: [4, 0, 32],                // sub-agents at once; 0: no limit
+    toolOutputMax: [30000, 1000, 2000000],       // characters of one tool result the model gets
 };
 const SETTINGS_DEFAULT = {
-    disabledTools: [], mentions: true, thinking: true, effort: {},
+    disabledTools: [], disabledSkills: [], mentions: true, thinking: true, effort: {},
+    pageFiles: true,      // Read/Edit/Write of the JS volumes served from the page
     compactAuto: true, compactAt: 80, contextWindow: null,
     systemPrompt: null,   // null: the built-in SYSTEM_PROMPT
     ...Object.fromEntries(Object.entries(LIMITS).map(([k, [d]]) => [k, d])),
@@ -943,10 +1101,12 @@ const settings = (() => {
     try { saved = JSON.parse(localStorage.getItem(SETTINGS)); } catch { /* defaults */ }
     const s = { ...SETTINGS_DEFAULT, ...(saved && typeof saved === 'object' ? saved : {}) };
     if (!Array.isArray(s.disabledTools)) s.disabledTools = [];
+    if (!Array.isArray(s.disabledSkills)) s.disabledSkills = [];
     if (!s.effort || typeof s.effort !== 'object') s.effort = {};
     if (!COMPACT_LEVELS.includes(s.compactAt)) s.compactAt = SETTINGS_DEFAULT.compactAt;
     if (!(Number.isInteger(s.contextWindow) && s.contextWindow >= 1000)) s.contextWindow = null;
     if (typeof s.systemPrompt !== 'string' || !s.systemPrompt.trim()) s.systemPrompt = null;
+    if (typeof s.pageFiles !== 'boolean') s.pageFiles = true;
     for (const key of Object.keys(LIMITS)) if (!inLimits(key, s[key])) s[key] = SETTINGS_DEFAULT[key];
     return s;
 })();
@@ -1018,7 +1178,8 @@ $('effort').onchange = () => {
     settings.effort[kind] = $('effort').value;
     saveSettings();
     // The running conversation takes it from its next request; sub-agents fork it.
-    if (agent?.provider.kind === kind) agent.provider.setEffort?.($('effort').value);
+    for (const x of sessions.values()) if (x.agent?.provider.kind === kind) x.agent.provider.setEffort?.($('effort').value);
+    if (connection?.provider.kind === kind) connection.provider.setEffort?.($('effort').value);
 };
 
 const TOOL_HINTS = {
@@ -1028,8 +1189,9 @@ const TOOL_HINTS = {
     Glob: 'find files by name',
     Grep: 'search file contents',
     Bash: 'run shell commands',
-    skill: 'load one of your skills (offered while you have any)',
-    Delegate: 'hand a task to a sub-agent with the same model and tools',
+    skill: 'load one of your skills (offered while any is on in the Skills tab)',
+    Delegate: 'hand a task to a sub-agent (each shows in a read-only tab)',
+    ask_user: 'ask you questions, with suggested answers (main agent only)',
 };
 /* A tool's own number settings, shown under its toggle: [text before, key, text after]. */
 const TOOL_OPTIONS = {
@@ -1079,11 +1241,14 @@ function renderSettings() {
     }
     numberSetting($('optMaxSteps'), 'maxSteps');
     numberSetting($('optEmptyRetries'), 'emptyRetries');
+    numberSetting($('optToolOutputMax'), 'toolOutputMax');
     $('optMentions').checked = settings.mentions;
     $('optThinking').checked = settings.thinking;
-    log.classList.toggle('hide-thinking', !settings.thinking);
+    $('optPageFiles').checked = settings.pageFiles;
+    $('chatView').classList.toggle('hide-thinking', !settings.thinking);
 }
 $('optMentions').onchange = () => { settings.mentions = $('optMentions').checked; saveSettings(); };
+$('optPageFiles').onchange = () => { settings.pageFiles = $('optPageFiles').checked; saveSettings(); };
 
 /* ---- system prompt editor --------------------------------------------------- */
 
@@ -1103,7 +1268,7 @@ $('systemSave').onclick = () => {
     settings.systemPrompt = text === SYSTEM_PROMPT ? null : text;
     saveSettings();
     systemEditorState();
-    addMessage('note', agent
+    addMessage('note', connection
         ? 'Saved the system prompt; it applies from your next message.'
         : 'Saved the system prompt.');
 };
@@ -1117,7 +1282,7 @@ $('systemReset').onclick = () => {
 systemEditorState();
 $('optThinking').onchange = () => {
     settings.thinking = $('optThinking').checked;
-    log.classList.toggle('hide-thinking', !settings.thinking);
+    $('chatView').classList.toggle('hide-thinking', !settings.thinking);
     saveSettings();
 };
 renderSettings();
@@ -1165,19 +1330,40 @@ $('tabChat').onclick = () => showChatTab('chat');
 $('tabSettings').onclick = () => showChatTab('settings');
 $('tabLog').onclick = () => showChatTab('log');
 
+/* ---- per-chat figures ------------------------------------------------------- */
+
+/* Each chat keeps its own figures on its record (js/chats.js): token usage,
+ * tool stats, compactions, the log of exchanges, and turn counts. A chat saved
+ * before some of them existed gets them empty. */
+const USAGE_COLUMNS = [
+    ['requests', 'Requests'], ['input', 'Input'], ['cacheWrite', 'Cache write'],
+    ['cacheRead', 'Cache read'], ['output', 'Output'], ['thinking', 'Thinking'],
+];
+const emptyUsage = () => ({ requests: 0, input: 0, cacheWrite: 0, cacheRead: 0, output: 0, thinking: 0, thinkingKnown: false });
+function ensureChatShape(c) {
+    const u = c.usage && typeof c.usage === 'object' ? c.usage : {};
+    c.usage = { main: { ...emptyUsage(), ...u.main }, sub: { ...emptyUsage(), ...u.sub }, compaction: { ...emptyUsage(), ...u.compaction } };
+    if (!c.toolStats || typeof c.toolStats !== 'object') c.toolStats = {};
+    c.compactions = { main: 0, sub: 0, ...(c.compactions || {}) };
+    if (!Array.isArray(c.exchanges)) c.exchanges = [];
+    c.stats = { turns: 0, workMs: 0, ...(c.stats || {}) };
+    return c;
+}
+
 /* ---- tool call stats ------------------------------------------------------- */
 
-/* Per tool: calls, failures, and time, the main agent's and sub-agents' together. */
-let toolStats = {};
-function countTool(name, ms, failed) {
-    const t = toolStats[name] ||= { calls: 0, failed: 0, total: 0, longest: 0 };
+/* Per tool: calls, failures, and time, the chat's agent and its sub-agents together. */
+function countTool(c, name, ms, failed) {
+    if (!c) return;
+    const t = c.toolStats[name] ||= { calls: 0, failed: 0, total: 0, longest: 0 };
     t.calls++;
     if (failed) t.failed++;
     t.total += ms;
     t.longest = Math.max(t.longest, ms);
-    renderToolStats();
+    if (c === chat) { renderToolStats(); renderChatInfo(); }
 }
 function renderToolStats() {
+    const toolStats = chat.toolStats;
     const table = $('toolStatsTable');
     table.replaceChildren();
     const head = table.createTHead().insertRow();
@@ -1207,37 +1393,42 @@ function renderToolStats() {
         }
     }
 }
-$('toolStatsReset').onclick = () => { toolStats = {}; renderToolStats(); };
+$('toolStatsReset').onclick = () => { chat.toolStats = {}; renderToolStats(); saveChatSoon(chat); };
 
 /* ---- the log: every exchange, as JSON ---------------------------------------- */
 
 /* What the agents said and did, the sub-agents' included: their messages, each
- * reply with its tool calls and usage, each tool result with its time. Kept for
- * this page's life, shown in the Log tab, and exported as one JSON file. Entries
- * hold model and guest text, so the page shows them as text only. */
+ * reply with its tool calls and usage, each tool result with its time. Kept per
+ * chat (the latest MAX_EXCHANGES are saved with it), shown in the Log tab, and
+ * exported as one JSON file. Entries hold model and guest text, so the page
+ * shows them as text only. An imported log is shown instead of the chat's until
+ * the chat logs something new. */
 const LOG_FORMAT = 'tinyemu-agent-log';
-let exchanges = [];
-let logImported = false;   // the tab shows a file, not this conversation
+let importedLog = null;    // { exchanges, conversation } from a file
 let logShown = 0;          // entries in the list
-function logExchange(entry) {
+const shownExchanges = () => (importedLog ? importedLog.exchanges : chat.exchanges);
+function logExchange(c, entry) {
+    if (!c) return;
     const e = { t: new Date().toISOString(), ...entry };
-    if (logImported) { logImported = false; exchanges = []; logShown = 0; $('logList').replaceChildren(); }
-    exchanges.push(e);
+    c.exchanges.push(e);
+    if (c !== chat) return;
+    if (importedLog) { importedLog = null; logShown = 0; $('logList').replaceChildren(); }
     if (!$('logPane').hidden) renderLog();
     else updateLogBar();
 }
 
 const LOG_PREVIEW = {
-    start: (e) => (e.agent === 'main' ? `${e.model || ''}` : `${e.description || ''}`),
-    user: (e) => (e.retry ? '(asked again)' : `${e.injected ? '(sent while working) ' : ''}${e.text}`),
+    start: (e) => (e.agent === 'main' ? `${e.model || ''}` : `${e.resumed ? '(resumed) ' : ''}${e.description || ''}`),
+    user: (e) => (e.retry ? '(asked again)' : e.resumed ? '(resumed after a reload)' : `${e.injected ? '(sent while working) ' : ''}${e.text}`),
     response: (e) => `${e.stop}${e.toolCalls?.length ? ` · ${e.toolCalls.map((c) => c.name).join(', ')}` : ''}${e.text ? ` · ${e.text}` : ''}`,
-    tool: (e) => `${e.name}${e.isError ? ' ✗' : ''}${Number.isFinite(e.ms) ? ` · ${seconds(e.ms)}` : ''} · ${String(e.input?.[TOOL_ARG[e.name]] ?? '')}`,
+    tool: (e) => `${e.name}${e.isError ? ' ✗' : ''}${Number.isFinite(e.ms) ? ` · ${seconds(e.ms)}` : ''} · ${toolArgText(e)}`,
     compaction: (e) => `${e.reason}: ${e.before} → ~${e.after} tokens`,
     error: (e) => e.message,
 };
 
 function logFilterValue() { return $('logFilter').value || 'all'; }
 function updateLogBar() {
+    const exchanges = shownExchanges();
     const agents = [...new Set(exchanges.map((e) => e.agent))];
     const sel = $('logFilter');
     const current = sel.value;
@@ -1246,14 +1437,14 @@ function updateLogBar() {
         sel.value = agents.includes(current) ? current : 'all';
     }
     $('logCount').textContent = `${exchanges.length.toLocaleString()} exchange${exchanges.length === 1 ? '' : 's'}`
-        + (logImported ? ' · imported from a file' : '');
+        + (importedLog ? ' · imported from a file' : '');
     $('logExport').disabled = !exchanges.length;
     $('logClear').disabled = !exchanges.length;
 }
 
 function logRow(e) {
     const box = document.createElement('details');
-    if (logImported) box.classList.add('imported');
+    if (importedLog) box.classList.add('imported');
     const s = document.createElement('summary');
     const span = (cls, text) => { const el = document.createElement('span'); el.className = cls; el.textContent = text; return el; };
     const time = e.t ? new Date(e.t).toLocaleTimeString() : '';
@@ -1273,9 +1464,10 @@ function logRow(e) {
 /* Adds what is new; a filter change or a clear redraws. */
 function renderLog({ redraw = false } = {}) {
     updateLogBar();
+    const exchanges = shownExchanges();
     const list = $('logList');
     const filter = logFilterValue();
-    if (redraw) { list.replaceChildren(); logShown = 0; }
+    if (redraw || logShown > exchanges.length) { list.replaceChildren(); logShown = 0; }
     const atEnd = list.scrollTop + list.clientHeight >= list.scrollHeight - 40;
     for (; logShown < exchanges.length; logShown++) {
         const e = exchanges[logShown];
@@ -1292,7 +1484,12 @@ function renderLog({ redraw = false } = {}) {
     if (atEnd) list.scrollTop = list.scrollHeight;
 }
 $('logFilter').onchange = () => renderLog({ redraw: true });
-$('logClear').onclick = () => { exchanges = []; logImported = false; renderLog({ redraw: true }); };
+$('logClear').onclick = () => {
+    if (importedLog) importedLog = null;
+    else chat.exchanges = [];
+    renderLog({ redraw: true });
+    saveChatSoon(chat);
+};
 
 function download(name, text) {
     const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
@@ -1303,20 +1500,20 @@ function download(name, text) {
     setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
-/* The log, plus the main conversation as the provider holds it, so an import can
- * carry on from it. No key is in either. */
+/* The log, plus the open chat's conversation as the provider holds it, so an
+ * import can carry on from it. No key is in either. */
 $('logExport').onclick = () => {
+    const a = ses().agent;
     const data = {
         format: LOG_FORMAT, version: 1, exported: new Date().toISOString(),
-        ...(logImported ? { reexported: true } : {}),
-        model: agent && !logImported ? { kind: agent.provider.kind ?? null, model: agent.provider.model ?? null, label: agentLabel } : null,
-        conversation: agent && !logImported ? agent.provider.exportHistory?.() ?? null : importedConversation,
-        exchanges,
+        ...(importedLog ? { reexported: true } : {}),
+        model: a && !importedLog ? { kind: a.provider.kind ?? null, model: a.provider.model ?? null, label: ses().label } : null,
+        conversation: a && !importedLog ? a.provider.exportHistory?.() ?? null : importedLog?.conversation ?? null,
+        exchanges: shownExchanges(),
     };
     download(`tinyemu-agent-log-${data.exported.replace(/[:.]/g, '-')}.json`, JSON.stringify(data, null, 2));
 };
 
-let importedConversation = null;
 $('logImport').onclick = () => $('logPick').click();
 $('logPick').onchange = async () => {
     const file = $('logPick').files[0];
@@ -1328,70 +1525,64 @@ $('logPick').onchange = async () => {
         addMessage('problem', `${file.name} is not a log exported from this page.`);
         return;
     }
-    exchanges = data.exchanges.filter((e) => e && typeof e === 'object');
-    importedConversation = data.conversation ?? null;
-    logImported = true;
+    importedLog = { exchanges: data.exchanges.filter((e) => e && typeof e === 'object'), conversation: data.conversation ?? null };
+    logShown = 0;
     renderLog({ redraw: true });
     // The conversation goes back only into the same kind of provider: each keeps
     // its own wire format.
+    const s = ses();
     const conv = data.conversation;
     const kind = data.model?.kind;
-    if (!conv || !agent?.provider.importHistory) return;
-    if (running) { addMessage('note', 'Opened the log. Stop the agent and import again to restore its conversation.'); return; }
-    if (kind !== agent.provider.kind) {
+    if (!conv || !s.agent?.provider.importHistory) return;
+    if (s.running) { addMessage('note', 'Opened the log. Stop the agent and import again to restore its conversation.'); return; }
+    if (kind !== s.agent.provider.kind) {
         addMessage('note', `Opened the log. Its conversation was with ${data.model?.label || 'another provider'}, so it can't be `
             + 'restored into this one; connect the same kind of provider to restore it.');
         return;
     }
-    if (!confirm(`Also restore the conversation from ${file.name} into the connected model? It replaces the current conversation.`)) return;
+    if (!confirm(`Also restore the conversation from ${file.name} into this chat? It replaces this chat's conversation with the model.`)) return;
     try {
-        agent.provider.importHistory(conv);
+        s.agent.provider.importHistory(conv);
+        s.agent.closePending();
         addMessage('note', `Restored the conversation from ${file.name}${data.model?.label ? ` (${data.model.label})` : ''}. `
             + 'Your next message carries on from it; the chat above does not show its earlier messages.');
-        logImported = false;
+        importedLog = null;
+        saveChatSoon(chat, 0);
         updateControls();
     } catch (e) {
         addMessage('problem', `Could not restore the conversation: ${e.message}`);
     }
 };
-renderToolStats();
 
 /* ---- token usage ---------------------------------------------------------- */
 
-/* Per conversation: the main agent's requests and its sub-agents', as the
- * providers report them (see Agent.js for the shape). */
-const USAGE_COLUMNS = [
-    ['requests', 'Requests'], ['input', 'Input'], ['cacheWrite', 'Cache write'],
-    ['cacheRead', 'Cache read'], ['output', 'Output'], ['thinking', 'Thinking'],
-];
-const emptyUsage = () => ({ requests: 0, input: 0, cacheWrite: 0, cacheRead: 0, output: 0, thinking: 0, thinkingKnown: false });
-const usage = { main: emptyUsage(), sub: emptyUsage(), compaction: emptyUsage() };
-
-/* kind 'compaction' is a summary's own request, whoever's context it was. */
-function addUsage(who, u, kind) {
-    const t = usage[kind === 'compaction' ? 'compaction' : who];
+/* Per chat: its agent's requests and its sub-agents', as the providers report
+ * them (see Agent.js for the shape). kind 'compaction' is a summary's own
+ * request, whoever's context it was. */
+function addUsage(c, who, u, kind) {
+    if (!c) return;
+    const t = c.usage[kind === 'compaction' ? 'compaction' : who];
     t.requests++;
     for (const k of ['input', 'cacheWrite', 'cacheRead', 'output']) t[k] += u[k] || 0;
     if (Number.isInteger(u.thinking)) { t.thinking += u.thinking; t.thinkingKnown = true; }
-    renderUsage();
+    if (c === chat) { renderUsage(); renderChatInfo(); }
 }
-function resetUsage() {
-    usage.main = emptyUsage();
-    usage.sub = emptyUsage();
-    usage.compaction = emptyUsage();
-    renderUsage();
-}
-$('usageReset').onclick = resetUsage;
+$('usageReset').onclick = () => { chat.usage = ensureChatShape({}).usage; renderUsage(); saveChatSoon(chat); };
 
 const fmt = (n) => n.toLocaleString();
 const short = (n) => (n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${+(n / 1e3).toFixed(1)}k` : String(n));
-
-function renderUsage() {
+function usageTotal(c) {
     const total = emptyUsage();
-    for (const t of [usage.main, usage.sub, usage.compaction]) {
+    for (const t of [c.usage.main, c.usage.sub, c.usage.compaction]) {
         for (const [k] of USAGE_COLUMNS) total[k] += t[k];
         total.thinkingKnown ||= t.thinkingKnown;
     }
+    return total;
+}
+
+function renderUsage() {
+    const usage = chat.usage;
+    const total = usageTotal(chat);
     const table = $('usageTable');
     table.replaceChildren();
     const head = table.createTHead().insertRow();
@@ -1402,7 +1593,7 @@ function renderUsage() {
     }
     const body = table.createTBody();
     for (const [label, t, cls] of [
-        ['Main agent', usage.main], ['Sub-agents', usage.sub], ['Compaction', usage.compaction], ['Total', total, 'total'],
+        [chat.kind === 'sub' ? 'This sub-agent' : 'Main agent', usage.main], ['Sub-agents', usage.sub], ['Compaction', usage.compaction], ['Total', total, 'total'],
     ]) {
         const row = body.insertRow();
         if (cls) row.className = cls;
@@ -1416,7 +1607,6 @@ function renderUsage() {
             + (total.thinkingKnown ? ` (thinking ${short(total.thinking)})` : '')
         : '';
 }
-renderUsage();
 
 /* ---- context window and compaction ---------------------------------------- */
 
@@ -1433,10 +1623,11 @@ const contextOptions = {
     threshold: () => settings.compactAt / 100,
     limit: (p) => windowOf(p).tokens,
 };
-const compactions = { main: 0, sub: 0 };
 
 function renderContext() {
-    const info = agent?.contextInfo();
+    const a = ses().agent;
+    const info = a?.contextInfo();
+    const compactions = chat.compactions;
     $('contextMeter').hidden = !info;
     const stats = $('contextStats');
     stats.replaceChildren();
@@ -1463,12 +1654,12 @@ function renderContext() {
         + (settings.compactAuto ? `Compacts by itself at ${fmt(info.trigger)}. ` : 'Automatic compaction is off. ')
         + `Compactions: ${compactions.main} main, ${compactions.sub} by sub-agents.`;
 
-    const w = windowOf(agent.provider);
+    const w = windowOf(a.provider);
     row('Window', `${fmt(w.tokens)} tokens (${w.source})`);
     row('In use', `${info.estimated ? '~' : ''}${fmt(info.used)} tokens, ${pct}%`
         + (info.estimated ? ' (estimate until the next response)' : ' (at the last response)'));
     row('Compacts at', settings.compactAuto
-        ? `${fmt(info.trigger)} tokens: ${settings.compactAt}% of the window${agent.provider.maxOutput ? ', less room for a reply' : ''}`
+        ? `${fmt(info.trigger)} tokens: ${settings.compactAt}% of the window${a.provider.maxOutput ? ', less room for a reply' : ''}`
         : 'never by itself (off)');
     row('Compactions', `${compactions.main} in this conversation, ${compactions.sub} by sub-agents`);
     const last = info.last;
@@ -1512,18 +1703,22 @@ function addCompactionCard(c, who = 'the conversation') {
 }
 
 $('compactNow').onclick = async () => {
-    if (!agent || running) return;
-    running = new AbortController();
+    const s = ses();
+    if (!s.agent || s.running || s.chat.kind === 'sub') return;
+    const ctl = s.running = new AbortController();
     updateControls();
+    renderChatTabs();
     try {
-        const done = await agent.compact({ signal: running.signal, reason: 'manual' });
-        if (!done) addMessage('note', 'There is nothing to compact yet.');
-        else if (done.aborted) addMessage('note', 'Stopped.');
+        const done = await s.agent.compact({ signal: ctl.signal, reason: 'manual' });
+        if (!done) inSession(s, () => addMessage('note', 'There is nothing to compact yet.'));
+        else if (done.aborted) inSession(s, () => addMessage('note', 'Stopped.'));
     } catch (e) {
-        addMessage('problem', `Could not compact the conversation: ${e.message}`);
+        inSession(s, () => addMessage('problem', `Could not compact the conversation: ${e.message}`));
     } finally {
-        running = null;
+        s.running = null;
         updateControls();
+        renderChatTabs();
+        saveChatSoon(s.chat, 0);
     }
 };
 
@@ -1534,21 +1729,21 @@ $('compactNow').onclick = async () => {
  * the reason the boot failed. */
 let vmReady;
 /* Read from IndexedDB now, so the skill tool and @mentions work before the VM is up. */
-const skills = new SkillLibrary();
+const skills = new SkillLibrary({ isEnabled: (id) => !settings.disabledSkills.includes(id) });
 /* Folders on the user's computer, linked into the workspace (js/LinkedFolders.js). */
 const links = new LinkedFolders({ volume: WORKSPACE_VOLUME, root: WORKSPACE });
 
 /* Read, Edit and Write of files on the page's own volumes (the workspace and the
  * skills) are served from here, without a trip through the guest: the VM's
  * volume store is the same one the guest mounts over 9p, which has no cache.
- * Off until the VM exists, and off again if the guest turns out not to have the
- * volumes mounted where the paths say. */
+ * Off until the VM exists, off again if the guest turns out not to have the
+ * volumes mounted where the paths say, and off while Settings turns it off. */
 const VOLUME_MOUNTS = [[WORKSPACE, WORKSPACE_VOLUME], [SKILLS_DIR, SKILLS_VOLUME]];
 const pageFiles = {
     vm: null,
     mounted: true,
     route(path) {
-        if (!this.vm || !this.mounted) return null;
+        if (!this.vm || !this.mounted || !settings.pageFiles) return null;
         for (const [dir, volume] of VOLUME_MOUNTS) {
             if (path === dir || path.startsWith(`${dir}/`)) return { volume, path: path.slice(dir.length) || '/' };
         }
@@ -1575,50 +1770,72 @@ const tools = createTools(new Promise((resolve, reject) => { vmReady = { resolve
     env: envObject,
     sync: () => links.sync(),
     delegate: (input, ctx) => delegate(input, ctx),
+    ask: (questions, ctx) => askUser(questions, ctx),
     isEnabled: (name) => !settings.disabledTools.includes(name),
     files: pageFiles,
     bashTimeoutMs: () => settings.bashTimeoutMin * 60000,
 });
-/* Sub-agents get the same tools and settings, minus Delegate itself. */
+/* Each chat's agent runs Bash in a shell of its own, so chats working at once
+ * don't move each other's directory. */
+const chatTools = (c) => tools.forShell(`chat-${c.id}`.slice(0, 40));
+
+/* The chat a tool call's ctx (or a sub-agent's) belongs to. */
+const chatOfCtx = (ctx) => chatById(ctx?.meta?.chatId);
+
+/* Sub-agents get their caller's tools less Delegate and ask_user, the same
+ * settings, and a read-only chat of their own (subView). Their usage, tool
+ * calls and compactions also count in the chat that delegated. */
 const delegate = createDelegate({
-    tools: tools.without(DELEGATE_TOOL),
+    tools: tools.without(DELEGATE_TOOL, ASK_TOOL),
     system: () => subagentPrompt(currentSystem()),
     context: contextOptions,
     maxSteps: () => settings.subMaxSteps,
     maxConcurrent: () => settings.subMaxConcurrent,
     emptyRetries: () => settings.emptyRetries,
-    log: logExchange,
+    toolOutputMax: () => settings.toolOutputMax,
+    log: (entry, ctx) => logExchange(chatOfCtx(ctx), entry),
     on: {
-        usage: (u, kind) => addUsage('sub', u, kind),
-        compacted() { compactions.sub++; renderContext(); },
-        toolEnd: (call, result, stats) => countTool(call.name, stats.ms, result.isError),
+        usage: (u, kind, ctx) => addUsage(chatOfCtx(ctx), 'sub', u, kind),
+        compacted(c, ctx) {
+            const p = chatOfCtx(ctx);
+            if (!p) return;
+            p.compactions.sub++;
+            if (p === chat) renderContext();
+        },
+        toolEnd: (call, result, stats, ctx) => countTool(chatOfCtx(ctx), call.name, stats.ms, result.isError),
     },
+    view: (info) => subView(info),
 });
-let agent = null;
-let agentLabel = '';
-let running = null;   // AbortController of the turn (or compaction) in progress
-renderContext();
+
+/* The model the user picked last: { provider, label }. The open chat's agent
+ * uses that provider; any other chat gets a fork of it when it needs one. */
+let connection = null;
 
 let loading = false;   // a chosen model is being loaded
+const PROMPT_HINT = $('prompt').placeholder;
 function updateControls() {
-    const usable = !!agent;
+    const s = ses();
+    const sub = chat.kind === 'sub';
+    const asking = s.asks.length > 0;
+    const usable = !!s.agent && !sub;
     $('prompt').disabled = !usable;
-    $('send').disabled = !usable;
+    $('prompt').hidden = asking;
+    $('prompt').placeholder = sub
+        ? `A sub-agent's conversation, read-only: the main agent gave it its task${s.running ? '. Stop ends it, and the main agent is told' : ''}.`
+        : PROMPT_HINT;
     // During a turn, a typed message goes to the agent at its next step.
-    const appending = !!running?.turn && !!$('prompt').value.trim();
-    $('send').textContent = running ? (appending ? 'Append' : 'Stop') : 'Send';
-    $('send').title = appending ? 'Give the agent this message at its next step, without stopping it' : '';
-    // Switching model hands the chat to another model, so not in the middle of a turn.
-    $('connect').disabled = !!running || loading;
-    $('model').disabled = !!running || loading || !modelsListed;
+    const appending = !!s.running?.turn && !asking && !!$('prompt').value.trim();
+    $('send').disabled = sub ? !s.running : !usable;
+    $('send').textContent = s.running ? (appending ? 'Append' : 'Stop') : 'Send';
+    $('send').title = appending ? 'Give the agent this message at its next step, without stopping it'
+        : sub && s.running ? 'Stop this sub-agent; the main agent gets "stopped" as its result' : '';
+    $('connect').disabled = loading;
+    // Picking a model hands the open chat to it, so not in the middle of its turn.
+    $('model').disabled = loading || !modelsListed || (!!s.running && !sub);
     // A compaction rewrites the history, so never during a turn.
-    $('compactNow').disabled = !agent || !!running || !agent.provider.transcript?.().length;
-    // The agent works in one chat: switching, adding or deleting waits for it.
-    for (const b of $('chatTabs').querySelectorAll('button')) {
-        b.disabled = !!running && !(b.classList.contains('cname') && b.closest('[aria-selected=true]'));
-    }
+    $('compactNow').disabled = !s.agent || !!s.running || sub || !s.agent.provider.transcript?.().length;
 }
-$('prompt').addEventListener('input', () => { if (running) updateControls(); });
+$('prompt').addEventListener('input', () => { if (ses().running) updateControls(); });
 
 /* ?baseURL= points the API client at a local proxy or test server. Loopback only:
  * otherwise a crafted link could send the key the user types here to any host. */
@@ -1662,49 +1879,83 @@ async function chooseModel() {
     }
 }
 
-/* Connect the open chat to a model. Its own conversation goes back into the
- * provider when that is the same kind (Claude, OpenAI-style, in-browser) that
- * wrote it: each keeps its history in its own format. */
+/* Connect to a model: it becomes the connection, and the open chat's agent
+ * (unless that is a sub-agent's chat). */
 function useProvider(provider, label, { quiet = false } = {}) {
-    agent = new Agent({
-        provider, tools, on: uiHooks(), context: contextOptions, system: currentSystem,
-        maxSteps: () => settings.maxSteps, emptyRetries: () => settings.emptyRetries, log: logExchange,
-    });
-    agentLabel = label;
-    agentChatId = chat.id;
-    let how = 'This chat starts here.';
-    if (chat.history) {
-        try {
-            provider.importHistory(chat.history);
-            how = 'It carries on this chat.';
-        } catch {
-            how = `This chat's earlier messages were with ${chat.model || 'another kind of model'}, which keeps them in `
-                + 'another format, so this model starts without them.';
-        }
-    } else if (chat.events.some((e) => e.k === 'user')) {
-        how = 'This chat\'s earlier messages were not saved with it, so the model starts without them.';
+    connection = { provider, label };
+    const s = ses();
+    if (chat.kind !== 'sub' && !s.running) {
+        // Keep what the agent so far had, for the new one to carry on.
+        try { if (s.agent) chat.history = s.agent.provider.exportHistory?.() ?? chat.history; } catch { /* keep the last */ }
+        buildAgent(s, provider, label, { quiet });
     }
-    chat.model = label;
-    renderContext();
-    renderChatTabs();
-    logExchange({ agent: 'main', type: 'start', model: label, kind: provider.kind ?? null, system: currentSystem(), tools: tools.defs.map((d) => d.name) });
-    if (!quiet) addMessage('note', `Connected to ${label}. ${how}`);
     updateControls();
     $('prompt').focus();
+    offerResume();
+}
+
+/* A chat's agent, on `provider`. The chat's own conversation goes back into the
+ * provider when that is the same kind (Claude, OpenAI-style, in-browser) that
+ * wrote it: each keeps its history in its own format. Calls a reload left
+ * without results are answered "interrupted", unless the chat waits to be asked
+ * whether to resume (keepPending). */
+function buildAgent(s, provider, label, { quiet = false, keepPending = false } = {}) {
+    const c = s.chat;
+    s.agent = new Agent({
+        provider, tools: chatTools(c), on: uiHooks(s), context: contextOptions, system: currentSystem,
+        maxSteps: () => settings.maxSteps, emptyRetries: () => settings.emptyRetries, log: (e) => logExchange(c, e),
+        meta: { chatId: c.id }, toolOutputMax: () => settings.toolOutputMax,
+    });
+    s.label = label;
+    s.conn = connection;
+    let how = 'This chat starts here.';
+    let restored = false;
+    if (c.history) {
+        try {
+            provider.importHistory(c.history);
+            restored = true;
+            if (provider.transcript?.().length ?? c.events.length) how = 'It carries on this chat.';
+        } catch {
+            how = `This chat's earlier messages were with ${c.model || 'another kind of model'}, which keeps them in `
+                + 'another format, so this model starts without them.';
+        }
+    } else if (c.events.some((e) => e.k === 'user')) {
+        how = 'This chat\'s earlier messages were not saved with it, so the model starts without them.';
+    }
+    if (restored && !(keepPending || (c.turn?.running && !resumeAsked))) s.agent.closePending();
+    c.model = label;
+    logExchange(c, { agent: 'main', type: 'start', model: label, kind: provider.kind ?? null, system: currentSystem(), tools: s.agent.tools.defs.map((d) => d.name) });
+    if (!quiet) inSession(s, () => addMessage('note', `Connected to ${label}. ${how}`));
+    if (c === chat) renderContext();
+    renderChatTabs();
+    return restored;
+}
+
+/* The open chat's agent, made from the connection when it has none or an older one. */
+function ensureAgent(s) {
+    if (!connection || s.chat.kind === 'sub' || s.running || s.conn === connection) return;
+    const p = connection.provider;
+    if (!p.fork) {
+        inSession(s, () => addMessage('problem', 'This model connection can\'t hold a second conversation; pick the model again to use it here.'));
+        return;
+    }
+    try { if (s.agent) s.chat.history = s.agent.provider.exportHistory?.() ?? s.chat.history; } catch { /* keep the last */ }
+    const fork = p.fork({ system: currentSystem(), tools: tools.defs });
+    fork.kind = p.kind;
+    buildAgent(s, fork, connection.label, { quiet: !s.chat.events.length });
 }
 
 /* ---- sending, and messages sent during a turn ------------------------------ */
 
-async function expandText(text) {
+async function expandText(s, text) {
     const { text: expanded, used } = settings.mentions ? await skills.expandMentions(text) : { text, used: [] };
-    if (used.length) addMessage('note', `Included the instructions of ${used.map((id) => `@${id}`).join(', ')}.`);
+    if (used.length) inSession(s, () => addMessage('note', `Included the instructions of ${used.map((id) => `@${id}`).join(', ')}.`));
     return expanded;
 }
 
 /* Messages typed while the agent works, by queue id: each shows at the bottom of
  * the chat until the agent takes it, at its next step. */
-const queued = new Map();
-function addQueued(id, text) {
+function addQueued(s, id, text) {
     const sent = Date.now();
     const el = document.createElement('div');
     el.className = 'msg user queued';
@@ -1717,17 +1968,18 @@ function addQueued(id, text) {
     cancel.textContent = 'Cancel';
     cancel.title = 'Take this message back and put it in the box again';
     cancel.onclick = () => {
-        if (!agent?.unqueue(id)) return;
+        if (!s.agent?.unqueue(id)) return;
         el.remove();
-        queued.delete(id);
-        if (!$('prompt').value.trim()) $('prompt').value = text;
+        s.queued.delete(id);
+        if (s.chat === chat) { if (!$('prompt').value.trim()) $('prompt').value = text; }
+        else if (!s.draft.trim()) s.draft = text;
         updateControls();
     };
     note.append(what, cancel);
     el.append(note);
-    queuedBox.append(el);
-    log.scrollTop = log.scrollHeight;
-    queued.set(id, {
+    s.queuedBox.append(el);
+    s.el.scrollTop = s.el.scrollHeight;
+    s.queued.set(id, {
         text,
         // Taken by the agent: it becomes an ordinary message, where the chat is now.
         deliver() {
@@ -1736,115 +1988,348 @@ function addQueued(id, text) {
             const now = Date.now();
             setMessageStat(el, stampText(sent), `Sent ${new Date(sent).toLocaleString()}, while the agent worked; `
                 + `it took the message at ${new Date(now).toLocaleTimeString()}`);
-            recordChat({ k: 'user', text, at: sent, took: now });
-            logAppend(el);
-            queued.delete(id);
-            follow();
+            inSession(s, () => {
+                recordChat({ k: 'user', text, at: sent, took: now });
+                logAppend(el);
+                follow();
+            });
+            s.queued.delete(id);
         },
-        remove() { el.remove(); queued.delete(id); },
+        remove() { el.remove(); s.queued.delete(id); },
     });
 }
 
-async function appendPrompt(text) {
+async function appendPrompt(s, text) {
     $('prompt').value = '';
     updateControls();
-    const expanded = await expandText(text);
-    if (!running?.turn) { await startTurn(text, expanded); return; }   // the turn ended meanwhile
-    addQueued(agent.queue(expanded), text);
+    const expanded = await expandText(s, text);
+    if (!s.running?.turn) { await startTurn(s, text, expanded); return; }   // the turn ended meanwhile
+    addQueued(s, s.agent.queue(expanded), text);
 }
 
 /* Buttons for a turn that stopped short. Retrying sends the same request again;
  * it needs the history to end with a user message or tool results, which isn't
  * so after a reply that hit its limit or a refusal (those were kept). */
-function stopActions(stop) {
-    const a = agent;
-    const ready = () => agent === a && !running;
+function stopActions(s, stop) {
+    const a = s.agent;
+    const ready = () => s.agent === a && !s.running;
     const actions = [];
     if (stop !== 'max_tokens' && stop !== 'refusal') {
-        actions.push([stop === 'max_steps' ? 'Keep going' : 'Try again', () => { if (ready()) runTurn((s) => agent.retry(s)); }]);
+        actions.push([stop === 'max_steps' ? 'Keep going' : 'Try again', () => { if (ready()) runTurn(s, (sig) => s.agent.retry(sig)); }]);
     }
-    actions.push(['Send “continue”', () => { if (ready()) startTurn('continue', 'continue'); }]);
+    actions.push(['Send “continue”', () => { if (ready()) startTurn(s, 'continue', 'continue'); }]);
     return actions;
 }
 
-async function runTurn(work) {
-    running = new AbortController();
-    running.turn = true;
+/* Run one turn of chat `s`. The chat records that a turn is running, so a reload
+ * in the middle can offer to resume it (offerResume). */
+async function runTurn(s, work) {
+    const c = s.chat;
+    const ctl = s.running = new AbortController();
+    ctl.turn = true;
+    const started = Date.now();
+    c.turn = { running: true, started };
+    saveChatSoon(c, 0);
     updateControls();
+    renderChatTabs();
     let aborted = false;
     try {
-        const r = await work(running.signal);
-        if (r.stop === 'aborted') { aborted = true; addChatNote('note', 'Stopped.'); }
-        else if (r.stop === 'empty') addChatProblem(`${r.detail} Ask again, or tell it to go on.`, stopActions(r.stop));
-        else if (r.stop !== 'end') addChatProblem(r.detail || `Stopped: ${r.stop}`, stopActions(r.stop));
+        const r = await work(ctl.signal);
+        inSession(s, () => {
+            if (r.stop === 'aborted') { aborted = true; addChatNote('note', 'Stopped.'); }
+            else if (r.stop === 'empty') addChatProblem(`${r.detail} Ask again, or tell it to go on.`, stopActions(s, r.stop));
+            else if (r.stop !== 'end') addChatProblem(r.detail || `Stopped: ${r.stop}`, stopActions(s, r.stop));
+        });
     } catch (e) {
-        addChatProblem(e.message, stopActions('error'));
+        inSession(s, () => addChatProblem(e.message, stopActions(s, 'error')));
     } finally {
-        hideWaiting();
-        aborted ||= running.signal.aborted;
-        running = null;
+        inSession(s, hideWaiting);
+        aborted ||= ctl.signal.aborted;
+        s.running = null;
+        c.turn = null;
+        c.stats.turns++;
+        c.stats.workMs += Date.now() - started;
         // Messages the agent didn't get to: after Stop they go back in the box,
         // otherwise they start the next turn.
-        const left = agent?.takePending() ?? [];
+        const left = s.agent?.takePending() ?? [];
         if (left.length) {
-            const texts = left.map((p) => queued.get(p.id)?.text ?? p.text);
+            const texts = left.map((p) => s.queued.get(p.id)?.text ?? p.text);
             if (aborted) {
-                for (const p of left) queued.get(p.id)?.remove();
-                $('prompt').value = [texts.join('\n\n'), $('prompt').value.trim()].filter(Boolean).join('\n\n');
-                addMessage('note', 'The messages you sent while it worked are back in the box; send them when you are ready.');
+                for (const p of left) s.queued.get(p.id)?.remove();
+                const back = (box) => [texts.join('\n\n'), box.trim()].filter(Boolean).join('\n\n');
+                if (c === chat) $('prompt').value = back($('prompt').value);
+                else s.draft = back(s.draft);
+                inSession(s, () => addMessage('note', 'The messages you sent while it worked are back in the box; send them when you are ready.'));
             } else {
-                for (const p of left) queued.get(p.id)?.deliver();
-                setTimeout(() => runTurn((s) => agent.send(left.map((p) => p.text).join('\n\n'), s)));
+                for (const p of left) s.queued.get(p.id)?.deliver();
+                setTimeout(() => runTurn(s, (sig) => s.agent.send(left.map((p) => p.text).join('\n\n'), sig)));
             }
         }
         updateControls();
-        saveChatSoon(0);
+        renderChatTabs();
+        saveChatSoon(c, 0);
     }
 }
 
-async function startTurn(shown, expanded = null) {
+async function startTurn(s, shown, expanded = null) {
     const sent = Date.now();
-    setMessageStat(addMessage('user', shown), stampText(sent), `Sent ${new Date(sent).toLocaleString()}`);
-    recordChat({ k: 'user', text: shown, at: sent });
-    nameChat(shown);
-    await runTurn(async (signal) => {
+    inSession(s, () => {
+        setMessageStat(addMessage('user', shown), stampText(sent), `Sent ${new Date(sent).toLocaleString()}`);
+        recordChat({ k: 'user', text: shown, at: sent });
+    });
+    nameChat(s.chat, shown);
+    await runTurn(s, async (signal) => {
         // The guest can add or edit skills too, so look again before each turn.
         await skills.refresh().catch(() => {});
         await links.sync().catch(() => {});
-        return agent.send(expanded ?? await expandText(shown), signal);
+        return s.agent.send(expanded ?? await expandText(s, shown), signal);
     });
 }
 
 async function sendPrompt() {
+    const s = ses();
     const text = $('prompt').value.trim();
-    if (running) {
-        if (running.turn && text) appendPrompt(text);
-        else running.abort();
+    if (chat.kind === 'sub') { s.running?.abort(); return; }
+    if (s.running) {
+        if (s.running.turn && text) appendPrompt(s, text);
+        else s.running.abort();
         return;
     }
-    if (!text || !agent) return;
+    if (!text || !s.agent) return;
     $('prompt').value = '';
-    await startTurn(text);
+    s.draft = '';
+    await startTurn(s, text);
+}
+
+/* ---- ask_user: the agent's questions, in place of the message box ------------ */
+
+/* The call waits until the user answers or dismisses the questions, or the call
+ * or turn is stopped. Questions of a chat that isn't open wait for it to be: its
+ * tab shows a "?". Several calls at once are asked one after another. */
+let askSeq = 0;
+function askUser(questions, ctx) {
+    const c = chatOfCtx(ctx) || chat;
+    const s = sessionOf(c);
+    return new Promise((resolve, reject) => {
+        const item = { key: ++askSeq, questions, callId: ctx.callId };
+        const done = () => {
+            ctx.signal?.removeEventListener('abort', onAbort);
+            s.asks = s.asks.filter((x) => x !== item);
+            if (s.chat === chat) renderAsk();
+            renderChatTabs();
+            updateControls();
+        };
+        const onAbort = () => { done(); reject(new ToolError('Stopped by the user.')); };
+        if (ctx.signal?.aborted) { reject(new ToolError('Stopped by the user.')); return; }
+        ctx.signal?.addEventListener('abort', onAbort, { once: true });
+        item.finish = (reply) => {
+            done();
+            // The answer shows as the user's message, and stays with the chat.
+            const text = reply.declined ? 'Dismissed the agent\'s question without answering.'
+                : questions.map((q) => {
+                    const a = reply.answers[q.id];
+                    const parts = [...a.picked, ...(a.text.trim() ? [a.text.trim()] : [])];
+                    return questions.length > 1 ? `${q.header || q.question}: ${parts.join('; ')}` : parts.join('; ');
+                }).join('\n');
+            const at = Date.now();
+            inSession(s, () => {
+                const el = addMessage('user', text);
+                setMessageStat(el, stampText(at), `Answered the agent's question ${new Date(at).toLocaleString()}`);
+                recordChat({ k: 'user', text, at, answer: true });
+            });
+            resolve(reply);
+        };
+        s.asks.push(item);
+        if (s.chat === chat) renderAsk();
+        renderChatTabs();
+        updateControls();
+    });
+}
+
+/* The open chat's first waiting question, as a form. Option buttons work like
+ * radio buttons (or checkboxes, with multi_select); a typed answer is the
+ * question's own unless it allows several. */
+function renderAsk() {
+    const box = $('askBox');
+    const s = ses();
+    const item = s.asks[0];
+    box.hidden = !item;
+    $('prompt').hidden = !!item;
+    if (!item) { box.replaceChildren(); delete box.dataset.key; return; }
+    if (box.dataset.key === String(item.key)) return;   // already shown: keep what was picked
+    box.dataset.key = String(item.key);
+    box.replaceChildren();
+    const state = new Map(item.questions.map((q) => [q.id, { picked: new Set(), text: '' }]));
+    const head = document.createElement('div');
+    head.className = 'askhead';
+    head.textContent = `The agent asks${item.questions.length > 1 ? ` ${item.questions.length} questions` : ''}`
+        + `${s.asks.length > 1 ? ` (${s.asks.length - 1} more waiting after these)` : ''}:`;
+    box.append(head);
+    const answer = document.createElement('button');
+    answer.type = 'button';
+    answer.className = 'go';
+    answer.textContent = 'Answer';
+    const ready = () => item.questions.every((q) => state.get(q.id).picked.size || state.get(q.id).text.trim());
+    const refresh = () => { answer.disabled = !ready(); };
+    const submit = () => {
+        if (!ready()) return;
+        const answers = {};
+        for (const q of item.questions) {
+            const st = state.get(q.id);
+            answers[q.id] = { picked: q.options.filter((o) => st.picked.has(o)), text: st.text };
+        }
+        item.finish({ answers });
+    };
+    let first = null;
+    for (const q of item.questions) {
+        const st = state.get(q.id);
+        const fs = document.createElement('fieldset');
+        const legend = document.createElement('legend');
+        legend.textContent = q.header || q.id;
+        const text = document.createElement('div');
+        text.className = 'askq';
+        text.textContent = q.question;
+        fs.append(legend, text);
+        const opts = document.createElement('div');
+        opts.className = 'askopts';
+        const buttons = [];
+        let other = null;
+        for (const o of q.options) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.textContent = o;
+            b.setAttribute('aria-pressed', 'false');
+            b.onclick = () => {
+                if (q.multi) {
+                    if (st.picked.has(o)) st.picked.delete(o); else st.picked.add(o);
+                } else {
+                    st.picked = new Set(st.picked.has(o) ? [] : [o]);
+                    // One answer: picking an option replaces a typed one.
+                    if (other && st.picked.size) { other.value = ''; st.text = ''; }
+                }
+                for (const x of buttons) x.setAttribute('aria-pressed', String(st.picked.has(x.textContent)));
+                refresh();
+            };
+            buttons.push(b);
+            opts.append(b);
+            first ||= b;
+        }
+        if (q.options.length) fs.append(opts);
+        if (q.multi) {
+            const hint = document.createElement('div');
+            hint.className = 'askhint';
+            hint.textContent = 'Pick any that apply.';
+            fs.append(hint);
+        }
+        if (q.custom) {
+            other = document.createElement('input');
+            other.className = 'askother';
+            other.placeholder = q.options.length ? 'Or type your own answer…' : 'Type your answer…';
+            other.setAttribute('aria-label', `Your own answer to: ${q.question}`);
+            other.oninput = () => {
+                st.text = other.value;
+                if (!q.multi && st.text.trim() && st.picked.size) {
+                    st.picked.clear();
+                    for (const x of buttons) x.setAttribute('aria-pressed', 'false');
+                }
+                refresh();
+            };
+            other.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } };
+            fs.append(other);
+            first ||= other;
+        }
+        box.append(fs);
+    }
+    const dismiss = document.createElement('button');
+    dismiss.type = 'button';
+    dismiss.textContent = 'Dismiss';
+    dismiss.title = 'Don\'t answer; the agent carries on with its best judgment';
+    dismiss.onclick = () => item.finish({ declined: true });
+    answer.onclick = submit;
+    const bar = document.createElement('div');
+    bar.className = 'askbar';
+    bar.append(answer, dismiss);
+    box.append(bar);
+    refresh();
+    if (!$('chatView').hidden) first?.focus();
+}
+
+/* ---- sub-agents: each in a read-only chat ------------------------------------ */
+
+/* createDelegate's view: a chat for the sub-agent, after its parent's tab, that
+ * shows its conversation as it happens (and keeps it, for a reload to resume). */
+function subView(info) {
+    const parent = chatById(info.parent?.chatId);
+    let c = info.resume?.chatId ? chatById(info.resume.chatId) : null;
+    if (!c) {
+        c = ensureChatShape(newChat());
+        Object.assign(c, {
+            kind: 'sub', parent: parent?.id ?? null, callId: info.callId, title: info.description || info.name, titled: true,
+            task: info.prompt, subName: info.name, shell: info.shell, model: parent?.model ?? null,
+        });
+        // After its parent and the parent's other sub-agents.
+        const at = parent ? chats.lastIndexOf(chats.filter((x) => x === parent || x.parent === parent.id).at(-1)) + 1 : chats.length;
+        chats.splice(at, 0, c);
+    }
+    c.status = 'running';
+    const s = sessionOf(c);
+    const ps = parent ? sessions.get(parent.id) : null;
+    s.label = ps?.label || connection?.label || '';
+    if (!info.resume) {
+        s.drawn = true;   // a new chat: nothing saved to draw
+        inSession(s, () => {
+            const at = Date.now();
+            const el = addMessage('user', info.prompt);
+            setMessageStat(el, stampText(at), `The main agent's task for ${info.name}, ${new Date(at).toLocaleString()}`);
+            recordChat({ k: 'user', text: info.prompt, at });
+        });
+    }
+    // Its Stop stops the main agent's Delegate call, which stops it.
+    s.running = { turn: false, sub: true, abort: () => ps?.agent?.cancelTool(info.callId) };
+    const hooks = uiHooks(s);
+    if (ps) linkSubCard(ps.cards.get(info.callId), c);
+    renderChatTabs();
+    saveChatSoon(c, 0);
+    if (c === chat) updateControls();
+    const started = Date.now();
+    return {
+        hooks,
+        meta: { chatId: c.id },
+        log: (e) => logExchange(c, e),
+        attach(agent) { s.agent = agent; if (c === chat) renderContext(); },
+        done(status, text) {
+            s.running = null;
+            c.status = status;
+            c.stats.turns++;
+            c.stats.workMs += Date.now() - started;
+            inSession(s, () => {
+                hideWaiting();
+                if (status === 'done') addChatNote('note', 'Finished: its last message went to the main agent as its report.');
+                else if (status === 'stopped') addChatNote('note', 'Stopped before it finished; the main agent was told.');
+                else addChatNote('problem', `Failed: ${text}`);
+            });
+            renderChatTabs();
+            if (c === chat) updateControls();
+            saveChatSoon(c, 0);
+        },
+    };
 }
 
 /* ---- chats: kept in this browser, one per tab (js/chats.js) ------------------- */
 
 const chatStore = typeof indexedDB === 'undefined' ? new MemoryChatStore() : new ChatStore();
 const ACTIVE_CHAT = 'tinyemu-agent-active-chat';
-let chats = [];
-let chat = null;          // the open chat
-let agentChatId = null;   // the chat whose conversation the agent's provider holds
-let chatSaveTimer = null;
 
-/* Add an event to the open chat (see js/chats.js); returns it, to fill in later. */
+/* Add an event to the chat being drawn (see js/chats.js); returns it, to fill in later. */
 function recordChat(ev) {
-    chat.events.push(ev);
-    chatChanged();
+    const c = here().chat;
+    c.events.push(ev);
+    chatChanged(c);
     return ev;
 }
-function chatChanged() {
-    chat.updated = Date.now();
-    saveChatSoon();
+function chatChanged(c = here().chat) {
+    c.updated = Date.now();
+    saveChatSoon(c);
 }
 /* A note or problem that belongs to the conversation, so it is kept with it. */
 function addChatNote(kind, text) {
@@ -1856,33 +2341,37 @@ function addChatProblem(text, actions) {
     return addProblem(text, actions);
 }
 /* The first message names the chat. */
-function nameChat(text) {
-    if (chat.titled) return;
-    chat.title = titleFrom(text);
-    chat.titled = true;
+function nameChat(c, text) {
+    if (c.titled) return;
+    c.title = titleFrom(text);
+    c.titled = true;
     renderChatTabs();
 }
 
 /* Saves go at most every 2 s while text streams in, and at once at a turn's end. */
-function saveChatSoon(ms = 2000) {
+const unsaved = new Set();
+let chatSaveTimer = null;
+function saveChatSoon(c = here().chat, ms = 2000) {
+    if (!c) return;
+    unsaved.add(c);
     if (chatSaveTimer && ms) return;
     clearTimeout(chatSaveTimer);
-    chatSaveTimer = setTimeout(() => { chatSaveTimer = null; saveChat(); }, ms);
+    chatSaveTimer = setTimeout(flushChats, ms);
 }
+function flushChats() {
+    clearTimeout(chatSaveTimer);
+    chatSaveTimer = null;
+    const list = [...unsaved];
+    unsaved.clear();
+    return Promise.all(list.map((c) => saveChat(c)));
+}
+/* The provider's history goes with the chat, so a reload carries on from it. */
 async function saveChat(c = chat) {
     if (!c || !chats.includes(c)) return;
-    if (c === chat) {
-        // The figures the Settings and Log tabs show belong to the open chat.
-        if (agent && agentChatId === c.id) {
-            try { c.history = agent.provider.exportHistory?.() ?? c.history; } catch { /* keep the last */ }
-        }
-        c.usage = structuredClone(usage);
-        c.toolStats = structuredClone(toolStats);
-        c.compactions = { ...compactions };
-        if (!logImported) c.exchanges = exchanges.slice(-MAX_EXCHANGES);
-    }
+    const a = sessions.get(c.id)?.agent;
+    if (a) { try { c.history = a.provider.exportHistory?.() ?? c.history; } catch { /* keep the last */ } }
     try {
-        await chatStore.put(c);
+        await chatStore.put({ ...c, exchanges: c.exchanges.slice(-MAX_EXCHANGES) });
     } catch (e) {
         console.warn('chats: could not save', e);
     }
@@ -1890,9 +2379,11 @@ async function saveChat(c = chat) {
 
 /* Draw a saved chat's events, as the live hooks drew them. */
 function drawChatEvent(ev) {
+    const s = here();
     if (ev.k === 'user') {
         const el = addMessage('user', ev.text);
-        setMessageStat(el, stampText(ev.at), `Sent ${new Date(ev.at).toLocaleString()}`
+        setMessageStat(el, stampText(ev.at), ev.answer ? `Answered the agent's question ${new Date(ev.at).toLocaleString()}`
+            : `Sent ${new Date(ev.at).toLocaleString()}`
             + (ev.took ? `, while the agent worked; it took the message at ${new Date(ev.took).toLocaleTimeString()}` : ''));
     } else if (ev.k === 'assistant') {
         const el = addMessage('assistant', ev.text);
@@ -1902,116 +2393,233 @@ function drawChatEvent(ev) {
         if (ev.stat) setMessageStat(box.querySelector('summary'), ev.stat.text, ev.stat.title);
     } else if (ev.k === 'tool') {
         const c = addToolCard(ev.call);
+        c.ev = ev;
         if (ev.title) c.card.title = ev.title;
         finishToolCard(c, ev.done ? ev : {
             output: ev.output || '', isError: true, statText: 'interrupted',
             statTitle: 'The page closed or reloaded while this ran; its result was never seen by the model',
         });
+        if (ev.call?.id) s.cards.set(ev.call.id, c);   // a resumed turn brings it back
+        const sub = ev.call?.name === DELEGATE_TOOL && subChatOf(s.chat.id, ev.call.id);
+        if (sub) linkSubCard(c, sub);
     } else if (ev.k === 'compaction') {
         addCompactionCard(ev.c, ev.who);
     } else if (ev.k === 'note' || ev.k === 'problem') {
         addMessage(ev.k, ev.text);
     }
 }
+function drawSession(s) {
+    s.drawn = true;
+    inSession(s, () => { for (const ev of s.chat.events) drawChatEvent(ev); });
+    s.el.scrollTop = s.el.scrollHeight;
+}
 
-/* Make `c` the open chat: its messages, and its figures in the Settings and Log tabs. */
+/* Make `c` the open chat: its log, its draft, and its figures in the Settings
+ * and Log tabs. Another chat's turn keeps running meanwhile. */
 function showChat(c) {
+    if (chat && chat !== c && sessions.has(chat.id)) sessions.get(chat.id).draft = $('prompt').value;
     chat = c;
     try { localStorage.setItem(ACTIVE_CHAT, c.id); } catch { /* not remembered */ }
-    for (const el of [...log.children]) if (el !== queuedBox) el.remove();
-    Object.assign(usage, { main: emptyUsage(), sub: emptyUsage(), compaction: emptyUsage() }, c.usage || {});
-    toolStats = structuredClone(c.toolStats || {});
-    Object.assign(compactions, { main: 0, sub: 0 }, c.compactions || {});
-    exchanges = Array.isArray(c.exchanges) ? [...c.exchanges] : [];
-    logImported = false;
+    const s = sessionOf(c);
+    for (const x of sessions.values()) x.el.hidden = x !== s;
+    if (!s.drawn) drawSession(s);
+    $('prompt').value = s.draft;
+    importedLog = null;
     logShown = 0;
     renderUsage();
     renderToolStats();
     renderLog({ redraw: true });
+    ensureAgent(s);
     renderContext();
-    for (const ev of c.events) drawChatEvent(ev);
-    log.scrollTop = log.scrollHeight;
     renderChatTabs();
+    renderAsk();
+    updateControls();
+}
+
+/* The tab bar's order: each chat, then its sub-agents' chats. Those show only
+ * while their family is open, so they don't crowd the bar. */
+function tabOrder() {
+    const family = chat?.kind === 'sub' ? chat.parent : chat?.id;
+    const out = [];
+    for (const c of chats) {
+        if (c.kind === 'sub' && chatById(c.parent)) continue;
+        out.push(c);
+        if (c.id === family) out.push(...chats.filter((x) => x.kind === 'sub' && x.parent === c.id));
+    }
+    // A sub-agent whose parent was deleted stays reachable.
+    return out;
 }
 
 function renderChatTabs() {
+    if (!chat) return;
     const bar = $('chatTabs');
     bar.replaceChildren();
-    for (const c of chats) {
+    for (const c of tabOrder()) {
+        const s = sessions.get(c.id);
         const tab = document.createElement('div');
-        tab.className = 'ctab';
+        tab.className = `ctab${c.kind === 'sub' ? ' sub' : ''}`;
         tab.setAttribute('role', 'tab');
         tab.setAttribute('aria-selected', String(c === chat));
         const name = document.createElement('button');
         name.className = 'cname';
-        name.textContent = c.title;
-        name.title = `${c.title}\nStarted ${new Date(c.created).toLocaleString()}`
-            + (c.model ? `\nModel: ${c.model}` : '') + '\nDouble-click to rename';
+        const subs = chats.filter((x) => x.parent === c.id).length;
+        name.textContent = c.kind === 'sub' ? `↳ ${c.title}` : c.title;
+        name.title = c.kind === 'sub'
+            ? `Sub-agent: ${c.title}\n${c.subName || ''}, ${c.status || 'interrupted'}\nStarted ${new Date(c.created).toLocaleString()}\nRead-only: the main agent gave it its task`
+            : `${c.title}\nStarted ${new Date(c.created).toLocaleString()}` + (c.model ? `\nModel: ${c.model}` : '')
+                + (subs ? `\n${subs} sub-agent${subs === 1 ? '' : 's'}` : '') + '\nDouble-click to rename';
         name.onclick = () => switchChat(c.id);
-        name.ondblclick = () => renameChat(c);
+        if (c.kind !== 'sub') name.ondblclick = () => renameChat(c);
+        tab.append(name);
+        if (s?.running) {
+            const busy = document.createElement('span');
+            busy.className = 'spinner cbusy';
+            busy.title = c.kind === 'sub' ? 'working' : 'the agent is working in this chat';
+            tab.append(busy);
+        } else if (c.kind === 'sub' && c.status && c.status !== 'running') {
+            const st = document.createElement('span');
+            st.className = `cstate ${c.status === 'done' ? 'done' : 'failed'}`;
+            st.textContent = c.status === 'done' ? '✓' : '✗';
+            st.title = c.status;
+            tab.append(st);
+        }
+        if (s?.asks.length) {
+            const q = document.createElement('span');
+            q.className = 'cmark';
+            q.textContent = '?';
+            q.title = 'The agent is asking you something here';
+            tab.append(q);
+        }
         const close = document.createElement('button');
         close.className = 'cclose';
         close.textContent = '×';
-        close.title = 'Delete this chat';
+        close.title = c.kind === 'sub' ? 'Delete this sub-agent\'s chat' : 'Delete this chat';
         close.setAttribute('aria-label', `Delete the chat ${c.title}`);
         close.onclick = () => deleteChat(c);
-        tab.append(name, close);
+        tab.append(close);
         bar.append(tab);
     }
     const add = document.createElement('button');
     add.id = 'chatNew';
     add.textContent = '+';
-    add.title = 'Start a new chat';
+    add.title = 'Start a new chat (others keep working)';
     add.setAttribute('aria-label', 'New chat');
     add.onclick = () => newChatTab();
-    bar.append(add);
+    const info = document.createElement('button');
+    info.id = 'chatInfoBtn';
+    info.textContent = 'ⓘ';
+    info.title = 'This chat\'s figures';
+    info.setAttribute('aria-label', 'This chat\'s figures');
+    info.setAttribute('aria-expanded', String(!$('chatInfo').hidden));
+    info.onclick = () => toggleChatInfo();
+    bar.append(add, info);
     bar.querySelector('[aria-selected=true]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    if (typeof updateControls === 'function') updateControls();
+    renderChatInfo();
 }
 
-/* The agent moves to another chat: a fresh conversation with the same model,
- * into which that chat's own conversation goes back. */
-function moveAgentTo() {
-    if (!agent) return;
-    const p = agent.provider.fork({ system: currentSystem(), tools: tools.defs });
-    p.kind = agent.provider.kind;
-    useProvider(p, agentLabel, { quiet: !chat.events.length });
+/* ---- the open chat's figures (the ⓘ at the end of the tab bar) ----------------- */
+
+function toggleChatInfo(open = $('chatInfo').hidden) {
+    $('chatInfo').hidden = !open;
+    $('chatInfoBtn')?.setAttribute('aria-expanded', String(open));
+    renderChatInfo();
 }
+function renderChatInfo() {
+    const box = $('chatInfo');
+    if (box.hidden || !chat) return;
+    const c = chat;
+    const s = sessions.get(c.id);
+    const rows = [];
+    const plural = (n, one, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
+    if (c.kind === 'sub') {
+        rows.push(['Kind', `sub-agent (${c.subName || 'sub-agent'}) of “${chatById(c.parent)?.title || 'a deleted chat'}”`]);
+        rows.push(['State', s?.running ? 'working' : c.status || 'interrupted']);
+    } else {
+        rows.push(['State', s?.running ? `working, for ${seconds(Date.now() - (c.turn?.started || Date.now()))}` : 'idle']);
+    }
+    rows.push(['Started', new Date(c.created).toLocaleString()]);
+    rows.push(['Last activity', new Date(c.updated).toLocaleString()]);
+    rows.push(['Model', c.model || 'none yet']);
+    const sent = c.events.filter((e) => e.k === 'user' && !e.answer).length;
+    const answers = c.events.filter((e) => e.k === 'user' && e.answer).length;
+    const replies = c.events.filter((e) => e.k === 'assistant').length;
+    rows.push(['Messages', `${plural(sent, c.kind === 'sub' ? 'task' : 'sent')}, ${plural(replies, 'reply', 'replies')}`
+        + (answers ? `, ${plural(answers, 'answered question')}` : '')]);
+    rows.push(['Turns', `${plural(c.stats.turns, 'turn')}, ${seconds(c.stats.workMs)} working`]);
+    const tools = Object.entries(c.toolStats);
+    const calls = tools.reduce((n, [, t]) => n + t.calls, 0);
+    const failed = tools.reduce((n, [, t]) => n + t.failed, 0);
+    rows.push(['Tool calls', calls ? `${calls.toLocaleString()}${failed ? ` (${failed} failed)` : ''}: `
+        + tools.sort((a, b) => b[1].calls - a[1].calls).map(([n, t]) => `${n} ${t.calls}`).join(', ') : 'none']);
+    const subs = chats.filter((x) => x.parent === c.id);
+    if (c.kind !== 'sub') {
+        const busy = subs.filter((x) => sessions.get(x.id)?.running).length;
+        rows.push(['Sub-agents', subs.length ? `${subs.length}${busy ? `, ${busy} working` : ''}` : 'none']);
+    }
+    const t = usageTotal(c);
+    rows.push(['Tokens', t.requests ? `${plural(t.requests, 'request')}: in ${short(t.input + t.cacheWrite)} · cached ${short(t.cacheRead)} · out ${short(t.output)}`
+        + (c.usage.sub.requests ? ` (sub-agents: out ${short(c.usage.sub.output)})` : '') : 'none yet']);
+    const info = s?.agent?.contextInfo();
+    if (info) rows.push(['Context', `${info.estimated ? '~' : ''}${short(info.used)} of ${short(info.limit)} tokens`]);
+    rows.push(['Compactions', `${c.compactions.main}${c.compactions.sub ? `, ${c.compactions.sub} by sub-agents` : ''}`]);
+    rows.push(['Log', plural(c.exchanges.length, 'exchange')]);
+    const h = document.createElement('h3');
+    h.textContent = c.title;
+    const dl = document.createElement('dl');
+    for (const [k, v] of rows) {
+        const dt = document.createElement('dt');
+        dt.textContent = k;
+        const dd = document.createElement('dd');
+        dd.textContent = v;
+        dl.append(dt, dd);
+    }
+    box.replaceChildren(h, dl);
+}
+document.addEventListener('click', (e) => {
+    if (!$('chatInfo').hidden && !e.target.closest?.('#chatInfo, #chatInfoBtn')) toggleChatInfo(false);
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('chatInfo').hidden) toggleChatInfo(false); });
+setInterval(() => { if (!$('chatInfo').hidden) renderChatInfo(); }, 2000);   // a working chat's clock
 
 async function switchChat(id) {
     if (chat?.id === id) return;
-    if (running) { addMessage('problem', 'The agent is working in this chat; stop it first.'); return; }
-    const next = chats.find((c) => c.id === id);
+    const next = chatById(id);
     if (!next) return;
-    clearTimeout(chatSaveTimer);
-    chatSaveTimer = null;
-    await saveChat();
+    saveChatSoon(chat, 0);
     showChat(next);
-    moveAgentTo();
 }
 
 async function newChatTab() {
-    if (running) { addMessage('problem', 'The agent is working in this chat; stop it first.'); return; }
-    const c = newChat();
+    const c = ensureChatShape(newChat());
     chats.push(c);
     await chatStore.put(c).catch(() => {});
     await switchChat(c.id);
     $('prompt').focus();
 }
 
+/* A chat goes with its sub-agents' chats; anything of them still working stops. */
 async function deleteChat(c) {
-    if (running && c === chat) { addMessage('problem', 'The agent is working in this chat; stop it first.'); return; }
-    if (c.events.length && !confirm(`Delete the chat "${c.title}"? Its messages and log go; the workspace and files stay. `
-        + 'This can\'t be undone.')) return;
-    chats = chats.filter((x) => x !== c);
-    await chatStore.delete(c.id).catch(() => {});
-    if (c !== chat) { renderChatTabs(); return; }
-    // The open one: go to the latest other, or a new one.
-    const next = pickChat(chats, null) || newChat();
+    const family = [c, ...chats.filter((x) => x.parent === c.id)];
+    const busy = family.some((x) => sessions.get(x.id)?.running);
+    const subs = family.length - 1;
+    if ((c.events.length || busy) && !confirm(`Delete the chat "${c.title}"`
+        + (subs ? ` and its ${subs} sub-agent chat${subs === 1 ? '' : 's'}` : '') + '? '
+        + (busy ? 'Its agent is working, and will be stopped. ' : '')
+        + 'Its messages and log go; the workspace and files stay. This can\'t be undone.')) return;
+    for (const x of family) sessions.get(x.id)?.running?.abort();
+    chats = chats.filter((x) => !family.includes(x));
+    for (const x of family) { unsaved.delete(x); await chatStore.delete(x.id).catch(() => {}); }
+    const wasOpen = family.includes(chat);
+    for (const x of family) if (x !== chat) dropSession(x);
+    if (!wasOpen) { renderChatTabs(); return; }
+    const old = chat;
+    // The open one: its parent, else the latest other main chat, or a new one.
+    const next = (c.kind === 'sub' && chatById(c.parent)) || pickChat(chats.filter((x) => x.kind !== 'sub'), null)
+        || ensureChatShape(newChat());
     if (!chats.includes(next)) { chats.push(next); await chatStore.put(next).catch(() => {}); }
     chat = null;
     showChat(next);
-    moveAgentTo();
+    dropSession(old);
 }
 
 function renameChat(c) {
@@ -2026,10 +2634,111 @@ function renameChat(c) {
 
 /* Delete every chat (the VM tab's Delete everything). */
 async function deleteAllChats() {
+    clearTimeout(chatSaveTimer);
+    chatSaveTimer = null;
+    unsaved.clear();
     await chatStore.clear().catch(() => {});
     try { localStorage.removeItem(ACTIVE_CHAT); } catch { /* none */ }
     chats = [];
 }
+
+/* ---- resuming work a reload cut off -------------------------------------------- */
+
+/* A chat whose turn was running when the page went (c.turn), and the sub-agents
+ * it had running, can carry on: once a model is connected, the page asks. On
+ * yes, each sub-agent resumes from its saved conversation, its report goes to
+ * the main agent as the Delegate call's result, the other calls it had running
+ * come back "interrupted", and the main agent goes on. On no, the same calls
+ * are answered "interrupted" and the chat waits for the user. */
+let resumeAsked = false;
+const MAIN_RESUME_NOTE = '[The page was reloaded in the middle of your turn. Tool calls that were running did not '
+    + 'finish (their results say so), except sub-agents, which carried on and reported. Continue where you left off.]';
+
+async function offerResume() {
+    if (resumeAsked || !connection) return;
+    const cut = chats.filter((c) => c.kind !== 'sub' && c.turn?.running && !sessions.get(c.id)?.running);
+    const stranded = (c) => chats.filter((x) => x.kind === 'sub' && x.parent === c.id && x.status === 'running');
+    resumeAsked = true;
+    if (!cut.length) { markSubsInterrupted(chats); return; }
+    const names = cut.map((c) => {
+        const n = stranded(c).length;
+        return `“${c.title}”${n ? ` with ${n} sub-agent${n === 1 ? '' : 's'} running` : ''}`;
+    });
+    const choice = await choose('Carry on where the reload stopped?',
+        `The page was reloaded while the agent was working in ${names.join(', ')}. Resume it? `
+        + 'Sub-agents carry on from their saved conversations, and when they report, the main agent goes on. '
+        + 'Commands that were running were cut off and are not run again; the agent is told.', [
+            { value: 'resume', label: 'Resume', hint: `With ${connection.label}.` },
+            { value: 'no', label: 'Leave it stopped', hint: 'Running calls are marked interrupted; send a message to go on.' },
+        ]);
+    const resuming = new Set();   // sub-agent chats that carry on
+    for (const c of cut) {
+        const subs = choice === 'resume' ? resumeChat(c) : null;
+        if (subs) for (const id of subs) resuming.add(id);
+        else abandonTurn(c);
+    }
+    markSubsInterrupted(chats.filter((x) => !resuming.has(x.id)));
+}
+
+/* Sub-agents left 'running' with nothing to carry them on. */
+function markSubsInterrupted(list) {
+    for (const x of list) {
+        if (x.kind !== 'sub' || x.status !== 'running' || sessions.get(x.id)?.running) continue;
+        x.status = 'interrupted';
+        const s = sessionOf(x);
+        if (!s.drawn) drawSession(s);
+        inSession(s, () => addChatNote('problem', 'Interrupted: the page reloaded while this sub-agent worked.'));
+        saveChatSoon(x, 0);
+    }
+    renderChatTabs();
+}
+
+function abandonTurn(c) {
+    const s = sessionOf(c);
+    s.agent?.closePending();
+    c.turn = null;
+    saveChatSoon(c, 0);
+}
+
+/* Start the resumed turn. @returns {string[]|null} the ids of the sub-agent
+ * chats that will carry on, or null if the chat can't be resumed (another kind
+ * of model wrote it, say). */
+function resumeChat(c) {
+    const s = sessionOf(c);
+    const p = connection.provider;
+    if (!s.agent || s.conn !== connection) {
+        const provider = c === chat && !s.agent ? p : p.fork?.({ system: currentSystem(), tools: tools.defs });
+        if (!provider) return null;
+        provider.kind = p.kind;
+        if (!buildAgent(s, provider, connection.label, { quiet: true, keepPending: true })) return null;
+    }
+    const subs = (s.agent.provider.pendingCalls?.() ?? [])
+        .filter((call) => s.agent.tools.resolve(call.name) === DELEGATE_TOOL)
+        .map((call) => subChatOf(c.id, call.id))
+        .filter((x) => x?.history && p.fork);
+    inSession(s, () => addChatNote('note', '↻ Resuming the turn the reload cut off.'));
+    runTurn(s, (signal) => s.agent.resumePending(signal, (call, ctx) => resumeCall(c, call, ctx), MAIN_RESUME_NOTE));
+    return subs.map((x) => x.id);
+}
+
+/* A call the reload cut off: a sub-agent carries on; anything else is "interrupted". */
+function resumeCall(c, call, ctx) {
+    if (call.name !== DELEGATE_TOOL) return null;
+    const sub = subChatOf(c.id, call.id);
+    if (!sub?.history || !connection.provider.fork) return null;
+    let provider;
+    try {
+        provider = connection.provider.fork({ system: subagentPrompt(currentSystem()), tools: [] });
+        provider.kind = connection.provider.kind;
+        provider.importHistory(sub.history);
+    } catch {
+        markSubsInterrupted([sub]);
+        return null;
+    }
+    return delegate.resume(call.input, ctx, { provider, name: sub.subName, shell: sub.shell, view: { chatId: sub.id } });
+}
+
+/* ---- load the chats --------------------------------------------------------- */
 
 /* Before anything can connect: a restored connection carries on the open chat. */
 try {
@@ -2038,14 +2747,21 @@ try {
     console.warn('chats: could not load', e);
 }
 chats.sort((a, b) => a.created - b.created);
-if (!chats.length) chats.push(newChat());
+for (const c of chats) ensureChatShape(c);
+if (!chats.some((c) => c.kind !== 'sub')) chats.push(ensureChatShape(newChat()));
 {
     let wanted = null;
     try { wanted = localStorage.getItem(ACTIVE_CHAT); } catch { /* none */ }
-    showChat(pickChat(chats, wanted));
+    showChat(chatById(wanted) || pickChat(chats.filter((c) => c.kind !== 'sub'), null));
 }
-// Try to keep the last few seconds of a reply when the page goes.
-addEventListener('pagehide', () => { if (chatSaveTimer) { clearTimeout(chatSaveTimer); chatSaveTimer = null; saveChat(); } });
+// Try to keep the last few seconds of every chat when the page goes.
+addEventListener('pagehide', () => { for (const c of chats) if (sessions.get(c.id)?.agent) unsaved.add(c); if (unsaved.size) flushChats(); });
+// A pause long enough to notice, while something runs.
+pauses.on((ms, why) => {
+    if (!anyRunning()) return;
+    addMessage('note', `⏸ The browser paused this page for ${seconds(Math.round(ms))}${why === 'frozen' ? ' (it froze the tab)' : ''}; `
+        + 'tool timeouts leave that time out.');
+});
 
 fillProviders();
 providerChanged();
@@ -2068,9 +2784,9 @@ $('connect').onclick = listModels;
 $('model').onchange = chooseModel;
 $('chat').onsubmit = (e) => { e.preventDefault(); sendPrompt(); };
 $('prompt').onkeydown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!running || $('prompt').value.trim()) sendPrompt(); }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!ses().running || $('prompt').value.trim()) sendPrompt(); }
     // Escape stops a turn even with a message typed (which would make the button Append).
-    if (e.key === 'Escape' && running) { e.preventDefault(); running.abort(); }
+    if (e.key === 'Escape' && ses().running) { e.preventDefault(); ses().running.abort(); }
 };
 
 /* ---- boot ------------------------------------------------------------- */
@@ -2435,20 +3151,44 @@ function renderSkills(list = skills.list()) {
         const row = document.createElement('div');
         row.className = 'skill';
         row.setAttribute('role', 'listitem');
-        const id = document.createElement('div');
+        // On or off for the agent: an off skill isn't offered by the skill tool,
+        // can't be loaded, and its @id isn't expanded. Its files stay.
+        const on = !settings.disabledSkills.includes(s.id);
+        row.classList.toggle('off', !on);
+        const id = document.createElement('label');
         id.className = 'sid';
-        id.append(`@${s.id}`);
+        id.title = on ? 'On: the agent can use this skill. Untick to turn it off.' : 'Off: the agent isn\'t offered this skill. Tick to turn it on.';
+        const toggle = document.createElement('input');
+        toggle.type = 'checkbox';
+        toggle.checked = on;
+        toggle.setAttribute('aria-label', `Let the agent use the skill ${s.id}`);
+        toggle.onchange = () => {
+            settings.disabledSkills = settings.disabledSkills.filter((x) => x !== s.id);
+            if (!toggle.checked) settings.disabledSkills.push(s.id);
+            saveSettings();
+            renderSkills();
+        };
+        id.append(toggle, `@${s.id}`);
         if (s.name !== s.id) {
             const name = document.createElement('span');
             name.className = 'sname';
             name.textContent = ` · ${s.name}`;
             id.append(name);
         }
+        if (!on) {
+            const off = document.createElement('span');
+            off.className = 'sname';
+            off.textContent = ' (off)';
+            id.append(off);
+        }
         const del = document.createElement('button');
         del.textContent = 'Delete';
         del.title = `Delete ${SKILLS_DIR}/${s.id}`;
         del.onclick = async () => {
             if (!confirm(`Delete the skill ${s.id} (${SKILLS_DIR}/${s.id})? This can't be undone.`)) return;
+            // A skill imported again under this id starts on.
+            settings.disabledSkills = settings.disabledSkills.filter((x) => x !== s.id);
+            saveSettings();
             try { await skills.remove(s.id); } catch (e) { addMessage('problem', `Could not delete ${s.id}: ${e.message}`); }
         };
         const open = document.createElement('button');
@@ -2720,15 +3460,16 @@ async function startVM() {
     vmState.seconds = bootSeconds();
     renderVMStats();
     setStatus('VM ready', 'ready');
-    addMessage('note', `The VM is ready (${how} in ${bootSeconds()} s).${agent ? '' : ' Choose a provider, press Connect and pick a model.'}`);
+    addMessage('note', `The VM is ready (${how} in ${bootSeconds()} s).${connection ? '' : ' Choose a provider, press Connect and pick a model.'}`);
     if (snapshotFp) $('saveState').disabled = false;
     else $('snapInfo').textContent = 'saving state is off';
 
     // For console poking and for driving the page from tests.
     window.agentDemo = {
         vm, bridge, tools, skills, links, linkFolder, copyFolderIn, files, settings,
-        chats: () => chats, openChat: () => chat, switchChat, newChatTab, deleteChat, saveChat, usage, useProvider, Agent, saveState, pageFiles,
-        exchanges: () => exchanges, toolStats: () => toolStats, machine,
+        chats: () => chats, openChat: () => chat, switchChat, newChatTab, deleteChat, saveChat, useProvider, Agent, saveState, pageFiles,
+        usage: () => chat.usage, exchanges: () => chat.exchanges, toolStats: () => chat.toolStats, machine,
+        sessions, session: () => ses(), connection: () => connection, delegate, askUser, pauses,
     };
 
     if (how === 'booted' && snapshotFp) await saveState({ auto: true });
@@ -2861,7 +3602,12 @@ async function renderDataStats() {
     } else {
         rows.push(['Workspace', 'counted once the VM runs']);
     }
-    rows.push(['Chats', `${plural(chats.length, 'chat')}, ${plural(chats.reduce((n, c) => n + c.events.filter((e) => e.k === 'user').length, 0), 'message')} sent`]);
+    {
+        const main = chats.filter((c) => c.kind !== 'sub');
+        const subs = chats.length - main.length;
+        rows.push(['Chats', `${plural(main.length, 'chat')}${subs ? ` (and ${plural(subs, 'sub-agent chat')})` : ''}, `
+            + `${plural(main.reduce((n, c) => n + c.events.filter((e) => e.k === 'user' && !e.answer).length, 0), 'message')} sent`]);
+    }
     rows.push(['Skills', plural(skills.list().length, 'skill')]);
     const states = await SnapshotStore.list().catch(() => []);
     const mine = machine ? snapshotKey() : null;
@@ -2890,7 +3636,7 @@ async function renderDataStats() {
 
 /* The data buttons change what a running turn may be using, so not during one. */
 function dataBusy() {
-    if (!running) return false;
+    if (!anyRunning()) return false;
     addMessage('problem', 'The agent is working; stop it first, then manage the data.');
     return true;
 }
@@ -2957,15 +3703,14 @@ $('dataStates').onclick = () => {
 $('dataChats').onclick = () => {
     if (!confirm(`Delete all ${chats.length} chats, with their messages and logs? The workspace and files stay. This can't be undone.`)) return;
     dataAction($('dataChats'), 'Deleting…', async () => {
-        clearTimeout(chatSaveTimer);
-        chatSaveTimer = null;
         await deleteAllChats();
-        const c = newChat();
+        const old = [...sessions.values()].map((x) => x.chat);
+        const c = ensureChatShape(newChat());
         chats.push(c);
         await chatStore.put(c).catch(() => {});
         chat = null;
         showChat(c);
-        moveAgentTo();
+        for (const x of old) dropSession(x);
         addMessage('note', 'Deleted all chats.');
     });
 };
@@ -2990,10 +3735,7 @@ $('dataEverything').onclick = () => {
         }
         for (const l of [...links.links]) await links.unlink(l.path);
         await SnapshotStore.clear();
-        clearTimeout(chatSaveTimer);
-        chatSaveTimer = null;
-        chat = null;   // nothing to save on the way out
-        await deleteAllChats();
+        await deleteAllChats();   // nothing to save on the way out
         savedConnection.clear();
         for (const k of PAGE_KEYS) { try { localStorage.removeItem(k); } catch { /* none */ } }
         await liveVM?.flush().catch(() => {});

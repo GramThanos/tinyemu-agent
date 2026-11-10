@@ -188,6 +188,20 @@ export class OpenAICompatProvider {
         this.messages = [this.messages[0], ...structuredClone(h.messages)];
     }
 
+    /** The last reply's tool calls that no `tool` message answers yet (the page reloaded mid-turn). */
+    pendingCalls() {
+        let i = this.messages.length - 1;
+        while (i > 0 && this.messages[i].role === 'tool') i--;
+        const m = this.messages[i];
+        if (i < 1 || m.role !== 'assistant' || !m.tool_calls?.length) return [];
+        const answered = new Set(this.messages.slice(i + 1).map((t) => t.tool_call_id));
+        return m.tool_calls.filter((c) => !answered.has(c.id)).map((c) => {
+            let input = {};
+            try { input = JSON.parse(c.function?.arguments || '{}'); } catch { /* shown as it was */ }
+            return { id: c.id, name: c.function?.name || '', input };
+        });
+    }
+
     addUser(text) { this.messages.push({ role: 'user', content: text }); }
 
     addToolResults(results) {

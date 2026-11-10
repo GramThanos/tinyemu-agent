@@ -150,7 +150,9 @@ export function groupSkillFiles(items) {
 }
 
 export class SkillLibrary {
-    constructor() {
+    /** @param {{isEnabled?: (id:string) => boolean}} [o]  the user's per-skill switch, read at each use */
+    constructor({ isEnabled = () => true } = {}) {
+        this.isEnabled = isEnabled;
         this.vm = null;
         this.skills = [];        // [{id, name, description}], sorted by id
         this._store = null;      // the volume as IndexedDB held it at page load
@@ -209,7 +211,11 @@ export class SkillLibrary {
         return found;
     }
 
+    /** Every skill on the volume, turned off or not. */
     list() { return this.skills; }
+
+    /** The skills the agent may use: the skill tool offers these, and only these expand as @id. */
+    enabled() { return this.skills.filter((s) => this.isEnabled(s.id)); }
 
     has(id) { return this.skills.some((s) => s.id === id); }
 
@@ -247,11 +253,14 @@ export class SkillLibrary {
     }
 
     /** The `skill` tool's result for one skill. */
-    async load(id) { return formatSkillLoad(id, await this.body(id)); }
+    async load(id) {
+        if (!this.isEnabled(id)) throw new Error(`The skill "${id}" is turned off.`);
+        return formatSkillLoad(id, await this.body(id));
+    }
 
     /** See expandSkillMentions(). */
     expandMentions(text) {
-        return expandSkillMentions(text, this.skills.map((s) => s.id), (id) => this.body(id));
+        return expandSkillMentions(text, this.enabled().map((s) => s.id), (id) => this.body(id));
     }
 
     /**

@@ -8,12 +8,19 @@
  *     history,     the provider's own conversation (exportHistory()), so the
  *                  model carries on where it left; only a provider of the same
  *                  kind can take it back (its `format`)
- *     usage, toolStats, compactions, exchanges }   the Settings and Log tabs' figures
+ *     usage, toolStats, compactions, exchanges,   the Settings and Log tabs' figures
+ *     stats,       { turns, workMs }, for the chat's ⓘ figures
+ *     turn }       { running, started } while a turn runs, so a reload can resume it
+ *
+ * A sub-agent's chat (read-only) has as well: kind: 'sub', parent (its main
+ * chat's id), callId (the Delegate call), subName, shell, task, and status:
+ * running, done, failed, stopped or interrupted.
  *
  * Events are plain JSON, never markup: the page draws them with textContent, as it
  * draws live messages.
- *   { k: 'user', text, at, took? }          a message you sent (took: when the
- *                                           agent took one sent while it worked)
+ *   { k: 'user', text, at, took?, answer? } a message you sent (took: when the
+ *                                           agent took one sent while it worked;
+ *                                           answer: your answer to ask_user)
  *   { k: 'assistant', text, stat? }         a reply; stat: { text, title }
  *   { k: 'thinking', text, stat? }
  *   { k: 'tool', call, output, isError, statText, statTitle, title, done }
