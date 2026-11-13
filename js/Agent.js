@@ -77,6 +77,51 @@ const sleep = (ms, signal) => new Promise((resolve) => {
     signal?.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
 });
 
+/* Waits before asking again after a network failure: 5 s twice, 10 s twice, then
+ * 20 s for as long as it takes. A turn waits until the connection is back or the
+ * user stops it; the count starts over once a request gets through. */
+export const NETWORK_RETRY_MS = [5000, 5000, 10000, 10000, 20000];
+
+/** The wait before network retry number `attempt` (0-based). */
+export function networkRetryDelay(attempt, schedule = NETWORK_RETRY_MS) {
+    return schedule[Math.min(attempt, schedule.length - 1)];
+}
+
+/* What browsers, Node and the SDKs say when a request never reached the server or
+ * its connection broke: Chrome "Failed to fetch", Firefox "NetworkError ...",
+ * Safari "Load failed", the Anthropic SDK "Connection error." and "Request timed
+ * out.", Node's undici "fetch failed"/"terminated" and its socket codes. */
+const NETWORK_MESSAGE = new RegExp([
+    'failed to fetch', 'networkerror', 'network error', 'load failed', 'network connection was lost',
+    'err_internet_disconnected', 'err_network', 'err_connection', 'err_name_not_resolved', 'connection error',
+    'request timed out', 'fetch failed', '^terminated$', 'socket hang up', 'error in input stream',
+    'econnreset', 'econnrefused', 'enotfound', 'etimedout', 'eai_again', 'enetunreach',
+].join('|'), 'i');
+
+/** Whether an error means the model couldn't be reached (no internet, a dropped connection). */
+export function isNetworkError(e) {
+    if (!e || isContextOverflow(e)) return false;
+    // An HTTP status means the server answered: that is not this.
+    if (Number.isInteger(e.status)) return false;
+    if (globalThis.navigator?.onLine === false) return true;
+    if (e.name === 'APIConnectionError' || e.name === 'APIConnectionTimeoutError') return true;
+    return [e, e.cause].some((x) => x && (NETWORK_MESSAGE.test(String(x.message ?? '')) || NETWORK_MESSAGE.test(String(x.code ?? ''))));
+}
+
+/* Sleep, but wake early when the browser says it is back online. */
+const waitForNetwork = (ms, signal) => new Promise((resolve) => {
+    let t;
+    const done = () => {
+        clearTimeout(t);
+        globalThis.removeEventListener?.('online', done);
+        signal?.removeEventListener('abort', done);
+        resolve();
+    };
+    t = setTimeout(done, ms);
+    globalThis.addEventListener?.('online', done);
+    signal?.addEventListener('abort', done, { once: true });
+});
+
 /* At most `limit()` holders at once (0 or less: no limit); the rest wait in turn. */
 function slots(limit) {
     let active = 0;
@@ -166,7 +211,7 @@ function chainHooks(a, b) {
  */
 export function createDelegate({
     tools, system = SUBAGENT_PROMPT, maxSteps = SUBAGENT_MAX_STEPS, maxConcurrent = 0, on = {}, context = {}, log = null,
-    emptyRetries = EMPTY_RETRIES, toolOutputMax = null, view = null,
+    emptyRetries = EMPTY_RETRIES, toolOutputMax = null, view = null, networkRetryMs = NETWORK_RETRY_MS,
 }) {
     const running = slots(maxConcurrent);
     let count = 0;
@@ -224,6 +269,7 @@ export function createDelegate({
                 task: prompt,
                 meta: v.meta ?? null,
                 toolOutputMax,
+                networkRetryMs,
                 log: (entry) => { log?.(entry, ctx); try { v.log?.(entry); } catch { /* never stops it */ } },
                 on: chainHooks(own, v.hooks),
             });
@@ -344,11 +390,14 @@ export class Agent {
      * @param {string} [opts.task]    a sub-agent's task, repeated after each compaction
      * @param {number|() => number} [opts.toolOutputMax]  characters of one tool result the
      *                                model gets (also capped at a quarter of the window)
+     * @param {number[]} [opts.networkRetryMs]  waits between asks while the model can't be
+     *                                reached; the last one repeats (NETWORK_RETRY_MS)
      */
     constructor({
         provider, tools, on = {}, maxSteps = MAX_STEPS, context = {}, system = null, name = 'main', log = null,
-        emptyRetries = EMPTY_RETRIES, meta = null, task = null, toolOutputMax = null,
+        emptyRetries = EMPTY_RETRIES, meta = null, task = null, toolOutputMax = null, networkRetryMs = NETWORK_RETRY_MS,
     }) {
+        this.networkRetryMs = networkRetryMs;   // waits after network failures (tests shorten them)
         this.provider = provider;
         this.tools = tools;
         this.on = on;
@@ -686,6 +735,7 @@ export class Agent {
         const { on } = this;
         let overflowRetried = false;
         let pauseRetried = false;
+        let networkFails = 0;   // in a row: a request that gets through starts the count over
         for (let i = 0; i < valueOf(this.maxSteps); i++) {
             // A long turn can fill the context between its steps.
             if (i > 0) await this._autoCompact(signal, true);
@@ -695,6 +745,7 @@ export class Agent {
             let step;
             try {
                 step = await this._step(signal, i);
+                networkFails = 0;
             } catch (e) {
                 if (signal?.aborted) return { stop: 'aborted' };
                 // The browser stopped the page mid-request (a frozen tab, a sleeping
@@ -702,6 +753,20 @@ export class Agent {
                 if (!pauseRetried && pauses.total > pausedBefore && !isContextOverflow(e)) {
                     pauseRetried = true;
                     on.retrying?.(`The page was paused while waiting for the model (${e.message}); asking again.`);
+                    i--;
+                    continue;
+                }
+                // No connection: wait and ask again, for as long as it takes. Nothing
+                // of the failed request is in the history, so the same one goes out.
+                if (isNetworkError(e)) {
+                    const delayMs = networkRetryDelay(networkFails, this.networkRetryMs);
+                    networkFails++;
+                    this._log('error', { step: i, message: e.message, network: true, attempt: networkFails, retryInMs: delayMs });
+                    const message = `Can't reach the model (${String(e.message).split('\n')[0].slice(0, 120)})`;
+                    on.retrying?.(`${message}; trying again in ${Math.round(delayMs / 1000)} s.`,
+                        { network: true, attempt: networkFails, delayMs, message });
+                    await waitForNetwork(delayMs, signal);
+                    if (signal?.aborted) return { stop: 'aborted' };
                     i--;
                     continue;
                 }

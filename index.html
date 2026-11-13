@@ -48,6 +48,9 @@
   #contextStats dd { margin: 0; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
   details.compaction { color: #8a93a2; font-size: 12px; }
   details.compaction summary { font-family: system-ui, sans-serif; }
+  #keepTips { margin-top: 6px; font-size: 12px; }
+  #keepTips summary { font-family: system-ui, sans-serif; }
+  #keepTips ul { margin: 0; padding: 4px 12px 8px 26px; line-height: 1.5; }
   #chatView, #settingsPane, #logPane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   #settingsPane, #vmPane { overflow: auto; padding: 4px 14px 14px; }
   #settingsPane h2, #vmPane h2 { display: flex; gap: 8px; align-items: baseline; margin: 14px 0 4px; font-size: 13px; }
@@ -100,7 +103,7 @@
   summary .tstat { float: right; margin-left: 8px; color: #8a93a2; font-size: 11px; }
   summary .tshell { color: #c99a2e; }
   /* Messages waiting for the agent's next step */
-  .queued { display: contents; }
+  .queue-box { display: contents; }
   .msg.user.queued { opacity: .75; border: 1px dashed #7fb4ff; background: #1d2633; }
   .msg.user .qnote { display: flex; gap: 8px; align-items: center; margin-top: 4px; color: #8a93a2; font: 11px system-ui, sans-serif; white-space: normal; }
   .msg.user .qnote button { padding: 0 6px; font-size: 11px; }
@@ -292,6 +295,36 @@
           <code>/agent/skills</code> from the page, which is faster
           <span class="hint">(off: every file call goes through the VM, as for other paths)</span></label>
       </div>
+      <h2>Keep running</h2>
+      <p class="hint">A browser stops a page it thinks nobody is using: the computer goes to sleep, or a background
+        tab gets frozen. The VM stops with it, and the agent's work waits until you come back. These apply only
+        while the agent works.</p>
+      <div class="toggles">
+        <label><input type="checkbox" id="optWakeLock"> Keep the screen on while the agent works, so the computer
+          doesn't sleep <span class="hint">(Screen Wake Lock; only while this tab is visible)</span></label>
+        <label><input type="checkbox" id="optKeepAudio"> Play a very quiet tone every 15 s while the agent works, so
+          the browser keeps this tab running in the background <span class="hint">(Chrome and Edge don't freeze or
+          throttle a tab that plays sound; the tab shows a speaker icon. It starts at your next click if the browser
+          didn't allow sound yet)</span></label>
+        <span class="hint" id="keepState"></span>
+      </div>
+      <details id="keepTips">
+        <summary>Browser settings that help</summary>
+        <ul>
+          <li><b>Chrome:</b> Settings → Performance (<code>chrome://settings/performance</code>). Under Memory Saver,
+            "Always keep these sites active" → Add <code class="keep-site"></code>. Energy Saver freezes busy
+            background tabs (since Chrome 133): turn it off, or keep the computer plugged in. <code>chrome://discards</code>
+            shows whether Chrome may freeze or discard a tab.</li>
+          <li><b>Edge:</b> Settings → System and performance (<code>edge://settings/system</code>). Under sleeping
+            tabs, "Never put these sites to sleep" → Add <code class="keep-site"></code>; efficiency mode also slows
+            background tabs.</li>
+          <li><b>Firefox:</b> doesn't freeze busy background tabs the way Chrome does, but unloads tabs when memory
+            runs low. To stop that: <code>about:config</code> → <code>browser.tabs.unloadOnLowMemory</code> = false.</li>
+          <li><b>Any browser:</b> a minimized window, or one fully covered by others, counts as a hidden tab. Give the
+            agent its own window and keep part of it in view. Set the computer's power options so it doesn't sleep
+            while plugged in.</li>
+        </ul>
+      </details>
       <h2>Agent</h2>
       <div class="toggles">
         <label>At most <input id="optMaxSteps" type="number" min="1" max="10000" step="1" size="6"> steps per message
@@ -458,6 +491,7 @@ import {
     ALL_TOOL_NAMES, ASK_TOOL, BASH_DEFAULT_MS, BASH_MAX_MS, createTools, DELEGATE_TOOL, ENV_NAME, shQuote, ToolError,
 } from './js/tools.js';
 import { pauses } from './js/pause.js';
+import { createKeepAwake } from './js/keepAwake.js';
 import { SKILL_FILE, SkillLibrary, SKILLS_DIR, SKILLS_STORAGE_KEY, SKILLS_VOLUME } from './js/skills.js';
 import {
     Agent, createDelegate, EMPTY_RETRIES, MAX_STEPS, renderPrompt, SUBAGENT_MAX_STEPS, subagentPrompt, SYSTEM_PROMPT, toolArgText,
@@ -555,7 +589,7 @@ function sessionOf(c) {
         el.setAttribute('aria-live', 'polite');
         el.hidden = c !== chat;
         const queuedBox = document.createElement('div');
-        queuedBox.className = 'queued';   // messages queued during a turn stay last
+        queuedBox.className = 'queue-box';   // messages queued during a turn stay last
         el.append(queuedBox);
         $('logs').append(el);
         s = {
@@ -582,6 +616,7 @@ function dropSession(c) {
     sessions.delete(c.id);
 }
 const anyRunning = () => [...sessions.values()].some((s) => s.running);
+let keepAwake = null;   // keeps the page running during turns; set up with the settings
 
 const logAppend = (el) => { const s = here(); s.el.insertBefore(el, s.queuedBox); };
 function follow() {
@@ -617,8 +652,9 @@ function setMessageStat(el, text, title) {
 const tokensPerSecond = (tokens, ms) => (ms > 0 ? tokens / (ms / 1000) : 0);
 
 /* "Waiting for the model…", with a spinner and the seconds so far, from when a
- * request goes out until its first visible output (or its end). One per chat. */
-function showWaiting(text) {
+ * request goes out until its first visible output (or its end). One per chat.
+ * With `until` (a Date.now() time), it counts down to it instead. */
+function showWaiting(text, { until = null } = {}) {
     hideWaiting();
     const s = here();
     const el = addMessage('note waiting');
@@ -630,6 +666,11 @@ function showWaiting(text) {
     const started = Date.now();
     const w = { el, text };
     w.tick = () => {
+        if (until) {
+            const left = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+            label.textContent = w.text.replace('{s}', String(left));
+            return;
+        }
         const secs = Math.floor((Date.now() - started) / 1000);
         label.textContent = secs ? `${w.text} ${secs} s` : w.text;
     };
@@ -888,7 +929,12 @@ function uiHooks(s) {
             follow();
             if (!$('filesPane').hidden) files.refresh();   // the call may have changed /workspace
         },
-        retrying(why) { addChatNote('note', `↻ ${why}`); },
+        retrying(why, info) {
+            if (!info?.network) { addChatNote('note', `↻ ${why}`); return; }
+            // No connection: one note per outage, then a countdown to the next try.
+            if (info.attempt === 1) addChatNote('note', `↻ ${info.message}; retrying until it is back.`);
+            showWaiting(`No connection to the model; try ${info.attempt + 1} in {s} s…`, { until: Date.now() + info.delayMs });
+        },
         injected(item) { s.queued.get(item.id)?.deliver(); },
         usage(u, kind) {
             addUsage(s.chat, 'main', u, kind);
@@ -1091,6 +1137,8 @@ const LIMITS = {
 const SETTINGS_DEFAULT = {
     disabledTools: [], disabledSkills: [], mentions: true, thinking: true, effort: {},
     pageFiles: true,      // Read/Edit/Write of the JS volumes served from the page
+    wakeLock: true,       // a Screen Wake Lock while a turn runs
+    keepAudio: false,     // a quiet tone while a turn runs, so the tab isn't frozen (js/keepAwake.js)
     compactAuto: true, compactAt: 80, contextWindow: null,
     systemPrompt: null,   // null: the built-in SYSTEM_PROMPT
     ...Object.fromEntries(Object.entries(LIMITS).map(([k, [d]]) => [k, d])),
@@ -1107,6 +1155,8 @@ const settings = (() => {
     if (!(Number.isInteger(s.contextWindow) && s.contextWindow >= 1000)) s.contextWindow = null;
     if (typeof s.systemPrompt !== 'string' || !s.systemPrompt.trim()) s.systemPrompt = null;
     if (typeof s.pageFiles !== 'boolean') s.pageFiles = true;
+    if (typeof s.wakeLock !== 'boolean') s.wakeLock = SETTINGS_DEFAULT.wakeLock;
+    if (typeof s.keepAudio !== 'boolean') s.keepAudio = SETTINGS_DEFAULT.keepAudio;
     for (const key of Object.keys(LIMITS)) if (!inLimits(key, s[key])) s[key] = SETTINGS_DEFAULT[key];
     return s;
 })();
@@ -1245,10 +1295,34 @@ function renderSettings() {
     $('optMentions').checked = settings.mentions;
     $('optThinking').checked = settings.thinking;
     $('optPageFiles').checked = settings.pageFiles;
+    $('optWakeLock').checked = settings.wakeLock;
+    $('optKeepAudio').checked = settings.keepAudio;
     $('chatView').classList.toggle('hide-thinking', !settings.thinking);
 }
 $('optMentions').onchange = () => { settings.mentions = $('optMentions').checked; saveSettings(); };
 $('optPageFiles').onchange = () => { settings.pageFiles = $('optPageFiles').checked; saveSettings(); };
+
+/* ---- keeping the page running while the agent works ------------------------ */
+
+const KEEP_TEXT = {
+    wakeLock: { held: 'the screen is kept on', unsupported: 'this browser has no Screen Wake Lock',
+        denied: 'the browser refused the wake lock', hidden: 'the wake lock waits for this tab to be visible' },
+    audio: { playing: 'the quiet tone is playing', waiting: 'the tone starts at your next click or key press',
+        unsupported: 'this browser has no Web Audio' },
+};
+keepAwake = createKeepAwake({
+    wakeLock: () => settings.wakeLock,
+    audio: () => settings.keepAudio,
+    onChange() {
+        const st = keepAwake?.state();
+        if (!st) return;
+        const parts = [KEEP_TEXT.wakeLock[st.wakeLock], KEEP_TEXT.audio[st.audio]].filter(Boolean);
+        $('keepState').textContent = st.active ? (parts.length ? `Now: ${parts.join('; ')}.` : '') : '';
+    },
+});
+for (const el of document.querySelectorAll('.keep-site')) el.textContent = location.origin;
+$('optWakeLock').onchange = () => { settings.wakeLock = $('optWakeLock').checked; saveSettings(); keepAwake.refresh(); };
+$('optKeepAudio').onchange = () => { settings.keepAudio = $('optKeepAudio').checked; saveSettings(); keepAwake.refresh(); };
 
 /* ---- system prompt editor --------------------------------------------------- */
 
@@ -1814,6 +1888,7 @@ let connection = null;
 let loading = false;   // a chosen model is being loaded
 const PROMPT_HINT = $('prompt').placeholder;
 function updateControls() {
+    keepAwake?.set(anyRunning());
     const s = ses();
     const sub = chat.kind === 'sub';
     const asking = s.asks.length > 0;
@@ -2758,6 +2833,8 @@ if (!chats.some((c) => c.kind !== 'sub')) chats.push(ensureChatShape(newChat()))
 addEventListener('pagehide', () => { for (const c of chats) if (sessions.get(c.id)?.agent) unsaved.add(c); if (unsaved.size) flushChats(); });
 // A pause long enough to notice, while something runs.
 pauses.on((ms, why) => {
+    // The engine left the pause out of the guest's clock: set its date again.
+    liveBridge?.syncClock().catch(() => {});
     if (!anyRunning()) return;
     addMessage('note', `⏸ The browser paused this page for ${seconds(Math.round(ms))}${why === 'frozen' ? ' (it froze the tab)' : ''}; `
         + 'tool timeouts leave that time out.');

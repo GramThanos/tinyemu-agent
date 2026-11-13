@@ -176,6 +176,18 @@ export class GuestBridge {
     }
 
     /**
+     * Set the guest's date to the page's. After the browser paused the page, the
+     * engine leaves the pause out of the guest's timers (jsemu.c, skip_pause_gap),
+     * so its clock is behind by that much.
+     */
+    async syncClock() {
+        if (!this.ready) return false;
+        const now = Math.floor(Date.now() / 1000);
+        const r = await this.exec({ script: `date -s @${now} >/dev/null`, timeoutMs: 20000 }).catch(() => null);
+        return !!r && r.rc === 0 && !r.timedOut;
+    }
+
+    /**
      * Run a script in the guest.
      * @param {object} job
      * @param {string} job.script       sourced by sh; `$AGENT_DIR` is the request directory
