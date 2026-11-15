@@ -150,6 +150,13 @@ export class VM {
     volumeFlush(volName) { return this._host?.volOp('flush', volName, {}); }
 
     /**
+     * The engine's counters: { cycles (instructions run, -1 if the build can't
+     * say), diskChunks, diskBytes (disk chunks downloaded), volumes: { name:
+     * { reads, readBytes, writes, writeBytes } } } (the guest's 9p traffic).
+     */
+    engineStats() { return this._host?.stats?.() ?? Promise.reject(new Error('VM not running')); }
+
+    /**
      * Save the running machine: memory, CPU, devices and the disk changes held in
      * memory (not attached JS volumes, which persist on their own). Start a VM with
      * config.snapshot set to the Blob to resume it, with the same wasm build and

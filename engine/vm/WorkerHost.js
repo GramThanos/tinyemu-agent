@@ -67,6 +67,15 @@ export class WorkerHost {
                 }
                 break;
             }
+            case 'stats-reply': {
+                const w = this._volWaiters.get(msg.id);
+                if (w) {
+                    this._volWaiters.delete(msg.id);
+                    if (msg.ok) w.resolve(msg.stats);
+                    else w.reject(new Error(msg.error || 'no statistics'));
+                }
+                break;
+            }
             case 'snapshot-reply': {
                 const w = this._volWaiters.get(msg.id);
                 if (w) {
@@ -144,6 +153,16 @@ export class WorkerHost {
         return new Promise((resolve, reject) => {
             this._volWaiters.set(id, { resolve, reject });
             this.worker.postMessage({ type: 'snapshot', id, options });
+        });
+    }
+
+    /** The engine's counters (EmulatorEngine.stats). */
+    stats() {
+        if (!this.worker) return Promise.reject(new Error('VM not running'));
+        const id = ++this._volSeq;
+        return new Promise((resolve, reject) => {
+            this._volWaiters.set(id, { resolve, reject });
+            this.worker.postMessage({ type: 'stats', id });
         });
     }
 

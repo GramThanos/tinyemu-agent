@@ -6,6 +6,8 @@
 
 'use strict';
 
+
+import { parseRateLimits } from '../figures.js';
 const SDK_URL = 'https://esm.sh/@anthropic-ai/sdk@1.3.0';
 const MAX_JSON_RETRIES = 2;
 
@@ -55,6 +57,7 @@ export class ClaudeProvider {
         this.messages = [];
         this.Anthropic = null;
         this.client = null;
+        this.limits = { last: null };   // the latest rate limits; forks share it with the client
     }
 
     /** Applies from the next request; a change misses the prompt cache once. */
@@ -68,10 +71,18 @@ export class ClaudeProvider {
     async load() {
         const { default: Anthropic } = await import(SDK_URL);
         this.Anthropic = Anthropic;
+        const limits = this.limits;
         this.client = new Anthropic({
             apiKey: this.apiKey,
             baseURL: this.baseURL || undefined,
             dangerouslyAllowBrowser: true,
+            // Read the rate-limit headers of every response, for the page's figures.
+            fetch: async (url, init) => {
+                const r = await fetch(url, init);
+                const parsed = parseRateLimits(r.headers);
+                if (parsed) limits.last = parsed;
+                return r;
+            },
         });
     }
 
@@ -86,6 +97,7 @@ export class ClaudeProvider {
         });
         p.Anthropic = this.Anthropic;
         p.client = this.client;
+        p.limits = this.limits;
         return p;
     }
 
@@ -179,6 +191,7 @@ export class ClaudeProvider {
                 cacheRead: u.cache_read_input_tokens || 0,
                 output: u.output_tokens || 0,
                 thinking: null,
+                ...(this.limits.last ? { limits: this.limits.last } : {}),
             });
 
             // Always append the content verbatim: thinking and fallback blocks must

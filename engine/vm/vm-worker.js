@@ -9,11 +9,12 @@
  * Protocol
  *   main → worker : start{config} | stdin{data} | net-rx{frame}
  *                   resize{cols,rows} | pause | resume | flush | stop
- *                   vol-op{id,op,volName,args} | snapshot{id,options}
+ *                   vol-op{id,op,volName,args} | snapshot{id,options} | stats{id}
  *   worker → main : booted | stdout{data} | net-tx{frame} | state{state}
  *                   log{level,text} | flushed | stopped | exit
  *                   vol-reply{id,ok,result|error}
  *                   snapshot-reply{id,ok,blob,info|error}
+ *                   stats-reply{id,ok,stats|error}
  * start{config} may carry config.snapshot (a Blob) to resume instead of boot.
  */
 
@@ -74,6 +75,9 @@ self.onmessage = async (ev) => {
             }
             return;
         }
+        case 'stats':
+            if (!engine) return void post({ type: 'stats-reply', id: msg.id, ok: false, error: 'no engine' });
+            return void post({ type: 'stats-reply', id: msg.id, ok: true, stats: engine.stats() });
         case 'stop':
             if (engine) await engine.stopAndFlush();  // persist volumes before ack
             return void post({ type: 'stopped' });

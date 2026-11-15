@@ -30,6 +30,8 @@
   #usageBrief { white-space: nowrap; font: 11px ui-monospace, monospace; }
   #contextMeter { display: flex; gap: 6px; align-items: center; flex-shrink: 0; font: 11px ui-monospace, monospace; }
   #contextMeter[hidden] { display: none; }
+  #contextMeter { padding: 2px 6px; background: none; border: 1px solid transparent; border-radius: 5px; color: inherit; cursor: pointer; }
+  #contextMeter:hover, #contextMeter[aria-expanded=true] { border-color: #3a4c69; }
   .cbar { position: relative; width: 56px; height: 6px; border-radius: 3px; background: #2a2e37; overflow: hidden; }
   #contextFill { position: absolute; inset: 0 auto 0 0; width: 0; background: #4f8fe0; }
   #contextFill.near { background: #c99a2e; }
@@ -134,6 +136,40 @@
   #chatTabs #chatInfoBtn { flex-shrink: 0; margin-left: auto; padding: 1px 8px; font-size: 13px; border-radius: 50%; }
   #chatInfoBtn[aria-expanded=true] { border-color: #7fb4ff; }
   #chatView { position: relative; }
+  .panel h4 { margin: 12px 0 5px; font-size: 12px; color: #c7ccd4; display: flex; justify-content: space-between; gap: 8px; }
+  .panel h4 .aside { color: #8a93a2; font-weight: normal; }
+  .panel .big { display: flex; justify-content: space-between; align-items: baseline; margin: 2px 0 6px; font-size: 12px; }
+  .panel .big b { font-size: 15px; }
+  .panel .muted, .panel .note { color: #8a93a2; }
+  .panel .note { margin: 8px 0 0; font-size: 11px; }
+  .seg { display: flex; height: 7px; border-radius: 4px; overflow: hidden; background: #2a2e37; margin-bottom: 8px; }
+  .seg span { height: 100%; }
+  .frows { display: grid; grid-template-columns: 12px minmax(0, 1fr) max-content 48px; gap: 4px 8px; align-items: center; font-size: 12px; }
+  .frows .sw { width: 10px; height: 10px; border-radius: 2px; }
+  .frows .n { font-family: ui-monospace, monospace; text-align: right; }
+  .frows .p { font-family: ui-monospace, monospace; text-align: right; color: #8a93a2; }
+  .frows .sub { padding-left: 12px; color: #8a93a2; }
+  .panel details { background: none; border: 0; margin-top: 4px; }
+  .panel details summary { padding: 3px 0; font: 12px system-ui, sans-serif; color: #8a93a2; }
+  .kv { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 3px 12px; font-size: 12px; }
+  .kv .v { font-family: ui-monospace, monospace; text-align: right; }
+  .kv .k { color: #8a93a2; }
+  .kv.pairs { grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr); }
+  .shares { display: grid; grid-template-columns: max-content minmax(60px, 1fr) 40px; gap: 5px 10px; align-items: center; font-size: 12px; }
+  .shares .bar { height: 5px; border-radius: 3px; background: #2a2e37; overflow: hidden; }
+  .shares .bar span { display: block; height: 100%; background: #4f8fe0; }
+  .shares .p { font-family: ui-monospace, monospace; text-align: right; }
+  .panel .linkish { margin-top: 8px; padding: 0; background: none; border: 0; color: #7fb4ff; font-size: 12px; cursor: pointer; }
+  .panel details > summary .aside { color: #6f7785; }
+  .panel .chart-head { margin: 8px 0 3px; font-size: 11px; color: #8a93a2; }
+  .panel .mono { margin: 0; font: 11px/1.5 ui-monospace, monospace; overflow-wrap: anywhere; }
+  .panel svg.spark { display: block; width: 100%; height: 46px; background: #1a1d23; border-radius: 4px; }
+  .ttable { display: grid; grid-template-columns: minmax(0, 1fr) repeat(6, max-content); gap: 3px 9px; font-size: 11px; }
+  .ttable .th { color: #8a93a2; }
+  .ttable .n { font-family: ui-monospace, monospace; text-align: right; }
+  .panel hr { border: 0; border-top: 1px solid #2a2e37; margin: 10px 0; }
+  #contextPanel { position: absolute; z-index: 5; right: 10px; top: 4px; width: min(380px, calc(100% - 20px)); max-height: 80%; overflow: auto; padding: 10px 12px; background: #16191e; border: 1px solid #3a4c69; border-radius: 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, .5); }
+  #contextPanel h3 { margin: 0 0 4px; font-size: 13px; }
   #chatInfo { position: absolute; z-index: 5; right: 10px; top: 34px; width: min(420px, calc(100% - 20px)); max-height: 70%; overflow: auto; padding: 10px 12px; background: #16191e; border: 1px solid #3a4c69; border-radius: 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, .5); }
   #chatInfo h3 { margin: 0 0 6px; font-size: 13px; overflow-wrap: anywhere; }
   #chatInfo dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; margin: 0; font-size: 12px; }
@@ -267,15 +303,16 @@
         <button role="tab" id="tabLog" aria-selected="false" aria-controls="logPane">Log</button>
       </div>
       <span id="usageBrief" title="Tokens used in this conversation, sub-agents included"></span>
-      <span id="contextMeter" hidden>
+      <button id="contextMeter" type="button" aria-expanded="false" aria-controls="contextPanel" hidden>
         <span class="cbar" aria-hidden="true"><span id="contextFill"></span><span id="contextMark"></span></span>
         <span id="contextText"></span>
-      </span>
+      </button>
       <button id="compactNow" disabled title="Summarize the conversation so far, to free context">Compact</button>
     </div>
     <div id="chatView" role="tabpanel" aria-labelledby="tabChat">
       <div id="chatTabs" role="tablist" aria-label="Chats"></div>
-      <div id="chatInfo" role="dialog" aria-label="This chat's figures" hidden></div>
+      <div id="chatInfo" class="panel" role="dialog" aria-label="This chat's usage and figures" hidden></div>
+      <div id="contextPanel" class="panel" role="dialog" aria-label="Context window" hidden></div>
       <div id="logs"></div>
       <form id="chat">
         <div id="askBox" role="group" aria-label="The agent's questions" hidden></div>
@@ -497,6 +534,9 @@ import {
     Agent, createDelegate, EMPTY_RETRIES, MAX_STEPS, renderPrompt, SUBAGENT_MAX_STEPS, subagentPrompt, SYSTEM_PROMPT, toolArgText,
 } from './js/Agent.js';
 import { DEFAULT_CONTEXT_WINDOW } from './js/compaction.js';
+import {
+    contextBreakdown, figuresShape, figuresSummary, recordExchange, recordSubAgent, usageSummary,
+} from './js/figures.js';
 import { CLAUDE_EFFORTS, ClaudeProvider, listClaudeModels } from './js/providers/claude.js';
 import { listOpenAIModels, OPENAI_EFFORTS, OPENAI_PRESETS, OpenAICompatProvider } from './js/providers/openai.js';
 import { hasWebGPU, WebLLMProvider, WEBLLM_MODELS } from './js/providers/webllm.js';
@@ -883,6 +923,7 @@ function uiHooks(s) {
             chatChanged();
         },
         toolStart(call) {
+            if (needsGuest(call)) vmCallEdge(true);
             hideWaiting();
             textEl = null;
             // A card the saved chat drew as interrupted comes back: its turn was resumed.
@@ -911,6 +952,7 @@ function uiHooks(s) {
             follow();
         },
         toolEnd(call, result, stats = {}) {
+            if (needsGuest(call)) vmCallEdge(false);
             const c = s.cards.get(call.id);
             if (!c) return;
             // A sub-agent's progress stays above its report; other output is replaced.
@@ -1420,7 +1462,8 @@ function ensureChatShape(c) {
     if (!c.toolStats || typeof c.toolStats !== 'object') c.toolStats = {};
     c.compactions = { main: 0, sub: 0, ...(c.compactions || {}) };
     if (!Array.isArray(c.exchanges)) c.exchanges = [];
-    c.stats = { turns: 0, workMs: 0, ...(c.stats || {}) };
+    c.stats = { turns: 0, workMs: 0, apiMs: 0, ...(c.stats || {}) };
+    c.figs = figuresShape(c.figs);
     return c;
 }
 
@@ -1485,6 +1528,11 @@ function logExchange(c, entry) {
     if (!c) return;
     const e = { t: new Date().toISOString(), ...entry };
     c.exchanges.push(e);
+    // Time waiting on the model, sub-agents' included (the log itself is capped).
+    if (e.type === 'response' && Number.isFinite(e.ms)) c.stats.apiMs += e.ms;
+    recordExchange(c.figs, e, c.kind === 'sub' ? c.subName : 'main');
+    if (e.type === 'tool' && e.health) lastHealth = { ...e.health, at: Date.now() };
+    if (e.type === 'response' && e.usage?.limits) lastLimits = { list: e.usage.limits, at: Date.now() };
     if (c !== chat) return;
     if (importedLog) { importedLog = null; logShown = 0; $('logList').replaceChildren(); }
     if (!$('logPane').hidden) renderLog();
@@ -1699,6 +1747,7 @@ const contextOptions = {
 };
 
 function renderContext() {
+    renderContextPanel();
     const a = ses().agent;
     const info = a?.contextInfo();
     const compactions = chat.compactions;
@@ -1726,7 +1775,7 @@ function renderContext() {
     $('contextMeter').title = `Context: ${fmt(info.used)} of ${fmt(info.limit)} tokens (${pct}%)`
         + `${info.estimated ? ', estimated since the last compaction' : ', at the last response'}. `
         + (settings.compactAuto ? `Compacts by itself at ${fmt(info.trigger)}. ` : 'Automatic compaction is off. ')
-        + `Compactions: ${compactions.main} main, ${compactions.sub} by sub-agents.`;
+        + `Compactions: ${compactions.main} main, ${compactions.sub} by sub-agents. Click for the breakdown.`;
 
     const w = windowOf(a.provider);
     row('Window', `${fmt(w.tokens)} tokens (${w.source})`);
@@ -1743,6 +1792,87 @@ function renderContext() {
             + (last.measured === null ? `~${fmt(last.after)} (estimate)` : `${fmt(last.measured)}`) + ' tokens');
     }
 }
+
+/* ---- the Context panel (the meter in the bar) -------------------------------- */
+
+const CONTEXT_COLORS = {
+    messages: '#4f8fe0', tools: '#2fb39a', skills: '#c99a2e', system: '#a07ae0', buffer: '#5b6270', free: '#2a2e37',
+};
+const node = (tag, cls, text) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+};
+const percent = (part, whole) => (whole ? `${((part / whole) * 100).toFixed(1)}%` : '—');
+
+function toggleContextPanel(open = $('contextPanel').hidden) {
+    $('contextPanel').hidden = !open;
+    $('contextMeter').setAttribute('aria-expanded', String(open));
+    if (open) toggleChatInfo(false);
+    renderContextPanel();
+}
+$('contextMeter').onclick = () => toggleContextPanel();
+
+function renderContextPanel() {
+    const box = $('contextPanel');
+    if (box.hidden) return;
+    const a = ses().agent;
+    const info = a?.contextInfo();
+    if (!info) { box.replaceChildren(node('h3', '', 'Context'), node('p', 'muted', 'No conversation yet: connect a model.')); return; }
+    const system = a.provider.system ?? a._system ?? currentSystem();
+    const b = contextBreakdown({
+        used: info.used, limit: info.limit, trigger: info.trigger, auto: settings.compactAuto,
+        system: typeof system === 'string' ? system : JSON.stringify(system),
+        defs: a.tools.defs, transcript: info.used ? [] : (a.provider.transcript?.() ?? []),
+    });
+    const big = node('div', 'big');
+    const head = node('b', '', `${Math.round((b.used / info.limit) * 100)}% used`);
+    big.append(head, node('span', 'muted', `${b.measured && !info.estimated ? '' : '~'}${short(b.used)} / ${short(info.limit)}`));
+    const seg = node('div', 'seg');
+    for (const p of b.segments) {
+        if (!p.tokens || p.key === 'free') continue;
+        const span = node('span');
+        span.style.width = `${(p.tokens / info.limit) * 100}%`;
+        span.style.background = CONTEXT_COLORS[p.key];
+        span.title = `${p.label}: ${fmt(p.tokens)} tokens`;
+        seg.append(span);
+    }
+    const rows = node('div', 'frows');
+    const enabledSkills = skills.enabled().length;
+    for (const p of b.segments) {
+        if (p.key === 'buffer' && !settings.compactAuto) continue;
+        const sw = node('span', 'sw');
+        sw.style.background = CONTEXT_COLORS[p.key];
+        if (p.key === 'free') sw.style.outline = '1px solid #3a4150';
+        const label = p.key === 'skills' ? `${p.label}${enabledSkills ? ` (${enabledSkills})` : ' (none on)'}` : p.label;
+        rows.append(sw, node('span', '', label), node('span', 'n', short(p.tokens)), node('span', 'p', percent(p.tokens, info.limit)));
+    }
+    const tools = node('details');
+    tools.append(node('summary', '', `Tool definitions: ${b.tools.length} tools`));
+    const trows = node('div', 'frows');
+    for (const t of b.tools) {
+        trows.append(node('span'), node('span', 'sub', t.name), node('span', 'n', short(t.tokens)), node('span', 'p', percent(t.tokens, info.limit)));
+    }
+    tools.append(trows);
+    const w = windowOf(a.provider);
+    const notes = [
+        b.measured
+            ? `In use: ${fmt(info.used)} tokens${info.estimated ? ', estimated since the last compaction' : ', measured at the last response'}. `
+                + 'The system prompt and tool definitions are estimated from their text (about 4 characters a token); Messages is the rest.'
+            : 'No response yet: everything is estimated from the text (about 4 characters a token).',
+        `Window: ${fmt(info.limit)} tokens, ${w.source}.`,
+        settings.compactAuto
+            ? `Compacts by itself at ${fmt(info.trigger)} tokens (${settings.compactAt}%${a.provider.maxOutput ? ', less room for a reply' : ''}); the buffer above that stays free.`
+            : 'Automatic compaction is off (Settings → Context).',
+        `Compactions: ${chat.compactions.main} in this chat${chat.compactions.sub ? `, ${chat.compactions.sub} by sub-agents` : ''}.`,
+    ];
+    box.replaceChildren(node('h3', '', 'Context'), big, seg, rows, tools, ...notes.map((t) => node('p', 'note', t)));
+}
+document.addEventListener('click', (e) => {
+    if (!$('contextPanel').hidden && !e.target.closest?.('#contextPanel, #contextMeter')) toggleContextPanel(false);
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('contextPanel').hidden) toggleContextPanel(false); });
 
 function fillCompactSettings() {
     const sel = $('optCompactAt');
@@ -2375,6 +2505,8 @@ function subView(info) {
         done(status, text) {
             s.running = null;
             c.status = status;
+            const parentChat = chatById(c.parent);
+            if (parentChat) recordSubAgent(parentChat.figs, status);
             c.stats.turns++;
             c.stats.workMs += Date.now() - started;
             inSession(s, () => {
@@ -2596,6 +2728,7 @@ function renderChatTabs() {
 
 function toggleChatInfo(open = $('chatInfo').hidden) {
     $('chatInfo').hidden = !open;
+    if (open && !$('contextPanel').hidden) toggleContextPanel(false);
     $('chatInfoBtn')?.setAttribute('aria-expanded', String(open));
     renderChatInfo();
 }
@@ -2604,9 +2737,45 @@ function renderChatInfo() {
     if (box.hidden || !chat) return;
     const c = chat;
     const s = sessions.get(c.id);
-    const rows = [];
     const plural = (n, one, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
-    if (c.kind === 'sub') {
+    const sub = c.kind === 'sub';
+
+    // Usage: what this chat cost in tokens and time, sub-agents included.
+    const u = usageSummary(c.usage);
+    const t = u.total;
+    const big = node('div', 'big');
+    big.append(node('b', '', t.requests ? `${short(u.tokens)} tokens` : 'No requests yet'),
+        node('span', 'muted', t.requests ? plural(t.requests, 'request') : ''));
+    const pairs = node('div', 'kv pairs');
+    const pair = (k, v) => pairs.append(node('span', 'k', k), node('span', 'v', v));
+    pair('API time', seconds(Math.round(c.stats.apiMs || 0)));
+    pair('Working', seconds(Math.round(c.stats.workMs || 0)));
+    pair('Cache hit', u.cacheHit === null ? '—' : `${Math.round(u.cacheHit * 100)}%`);
+    pair('Turns', c.stats.turns.toLocaleString());
+    const breakdown = node('div', 'kv');
+    for (const [label, v] of [
+        ['Input', t.input], ['Output', t.output], ['Cache read', t.cacheRead], ['Cache write', t.cacheWrite],
+        ['Thinking (in output)', t.thinkingKnown ? t.thinking : null],
+    ]) breakdown.append(node('span', 'k', label), node('span', 'v', v === null ? '—' : fmt(v)));
+    const shares = node('div', 'shares');
+    const names = { main: sub ? 'This sub-agent' : 'Main agent', sub: 'Sub-agents', compaction: 'Compaction summaries' };
+    for (const p of u.shares) {
+        if (sub && p.key === 'sub') continue;
+        const bar = node('span', 'bar');
+        const fill = node('span');
+        fill.style.width = `${(p.share * 100).toFixed(1)}%`;
+        bar.append(fill);
+        bar.title = `${fmt(p.tokens)} tokens`;
+        shares.append(node('span', '', names[p.key]), bar, node('span', 'p', `${Math.round(p.share * 100)}%`));
+    }
+    const usageHead = node('h4', '', 'Usage');
+    usageHead.append(node('span', 'aside', c.model || ''));
+    const breakHead = node('h4', '', 'Breakdown');
+    breakHead.append(node('span', 'aside', 'tokens'));
+
+    // The chat itself.
+    const rows = [];
+    if (sub) {
         rows.push(['Kind', `sub-agent (${c.subName || 'sub-agent'}) of “${chatById(c.parent)?.title || 'a deleted chat'}”`]);
         rows.push(['State', s?.running ? 'working' : c.status || 'interrupted']);
     } else {
@@ -2614,41 +2783,216 @@ function renderChatInfo() {
     }
     rows.push(['Started', new Date(c.created).toLocaleString()]);
     rows.push(['Last activity', new Date(c.updated).toLocaleString()]);
-    rows.push(['Model', c.model || 'none yet']);
     const sent = c.events.filter((e) => e.k === 'user' && !e.answer).length;
     const answers = c.events.filter((e) => e.k === 'user' && e.answer).length;
     const replies = c.events.filter((e) => e.k === 'assistant').length;
-    rows.push(['Messages', `${plural(sent, c.kind === 'sub' ? 'task' : 'sent')}, ${plural(replies, 'reply', 'replies')}`
+    rows.push(['Messages', `${plural(sent, sub ? 'task' : 'sent')}, ${plural(replies, 'reply', 'replies')}`
         + (answers ? `, ${plural(answers, 'answered question')}` : '')]);
-    rows.push(['Turns', `${plural(c.stats.turns, 'turn')}, ${seconds(c.stats.workMs)} working`]);
     const tools = Object.entries(c.toolStats);
-    const calls = tools.reduce((n, [, t]) => n + t.calls, 0);
-    const failed = tools.reduce((n, [, t]) => n + t.failed, 0);
+    const calls = tools.reduce((n, [, x]) => n + x.calls, 0);
+    const failed = tools.reduce((n, [, x]) => n + x.failed, 0);
     rows.push(['Tool calls', calls ? `${calls.toLocaleString()}${failed ? ` (${failed} failed)` : ''}: `
-        + tools.sort((a, b) => b[1].calls - a[1].calls).map(([n, t]) => `${n} ${t.calls}`).join(', ') : 'none']);
-    const subs = chats.filter((x) => x.parent === c.id);
-    if (c.kind !== 'sub') {
+        + tools.sort((a, b) => b[1].calls - a[1].calls).map(([n, x]) => `${n} ${x.calls}`).join(', ') : 'none']);
+    if (!sub) {
+        const subs = chats.filter((x) => x.parent === c.id);
         const busy = subs.filter((x) => sessions.get(x.id)?.running).length;
         rows.push(['Sub-agents', subs.length ? `${subs.length}${busy ? `, ${busy} working` : ''}` : 'none']);
     }
-    const t = usageTotal(c);
-    rows.push(['Tokens', t.requests ? `${plural(t.requests, 'request')}: in ${short(t.input + t.cacheWrite)} · cached ${short(t.cacheRead)} · out ${short(t.output)}`
-        + (c.usage.sub.requests ? ` (sub-agents: out ${short(c.usage.sub.output)})` : '') : 'none yet']);
-    const info = s?.agent?.contextInfo();
-    if (info) rows.push(['Context', `${info.estimated ? '~' : ''}${short(info.used)} of ${short(info.limit)} tokens`]);
     rows.push(['Compactions', `${c.compactions.main}${c.compactions.sub ? `, ${c.compactions.sub} by sub-agents` : ''}`]);
     rows.push(['Log', plural(c.exchanges.length, 'exchange')]);
-    const h = document.createElement('h3');
-    h.textContent = c.title;
     const dl = document.createElement('dl');
-    for (const [k, v] of rows) {
-        const dt = document.createElement('dt');
-        dt.textContent = k;
-        const dd = document.createElement('dd');
-        dd.textContent = v;
-        dl.append(dt, dd);
+    for (const [k, v] of rows) dl.append(node('dt', '', k), node('dd', '', v));
+
+    const parts = [node('h3', '', c.title), usageHead, big, pairs, breakHead, breakdown];
+    if (t.requests) parts.push(node('h4', '', 'Where the tokens went'), shares);
+    const info = s?.agent?.contextInfo();
+    if (info && c === chat) {
+        const open = node('button', 'linkish', `Context: ${info.estimated ? '~' : ''}${short(info.used)} of ${short(info.limit)} tokens (${Math.round((info.used / info.limit) * 100)}%) →`);
+        open.type = 'button';
+        open.onclick = (e) => { e.stopPropagation(); toggleContextPanel(true); };
+        parts.push(open);
     }
-    box.replaceChildren(h, dl);
+    parts.push(...figureSections(c));
+    parts.push(node('hr'), node('h4', '', 'Chat'), dl);
+    box.replaceChildren(...parts);
+}
+
+/* ---- the ⓘ panel's folds: model, tools, time, sub-agents, breaks, limits ------- */
+
+const infoOpen = new Set();   // folds left open, kept across the panel's redraws
+function fold(key, title, aside, ...content) {
+    const d = node('details');
+    d.open = infoOpen.has(key);
+    d.ontoggle = () => { if (d.open) infoOpen.add(key); else infoOpen.delete(key); };
+    const sum = node('summary', '', title);
+    if (aside) sum.append(node('span', 'aside', ` · ${aside}`));
+    d.append(sum, ...content);
+    return d;
+}
+function kvList(rows) {
+    const el = node('div', 'kv');
+    for (const [k, v] of rows) if (v !== null && v !== undefined) el.append(node('span', 'k', k), node('span', 'v', v));
+    return el;
+}
+const pct = (x) => (x === null ? '—' : `${Math.round(x * 100)}%`);
+const STOP_LABELS = {
+    end: 'finished', tool_use: 'called tools', max_tokens: 'hit the output limit', empty: 'came back empty',
+    refusal: 'refused', aborted: 'stopped', max_steps: 'ran out of steps', error: 'failed',
+};
+
+/* The context size per request, as a small line chart; compactions as ticks. */
+function contextChart(points, limit) {
+    const W = 300, H = 46;
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('class', 'spark');
+    svg.setAttribute('role', 'img');
+    const max = Math.max(limit || 0, ...points.map((p) => p[1]), 1);
+    const x = (i) => (points.length > 1 ? (i / (points.length - 1)) * (W - 2) + 1 : W / 2);
+    const y = (v) => H - 2 - (v / max) * (H - 4);
+    const line = document.createElementNS(NS, 'polyline');
+    line.setAttribute('points', points.map((p, i) => `${x(i).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' '));
+    line.setAttribute('fill', 'none');
+    line.setAttribute('stroke', '#4f8fe0');
+    line.setAttribute('stroke-width', '1.5');
+    svg.append(line);
+    points.forEach((p, i) => {
+        if (!p[2]) return;
+        const t = document.createElementNS(NS, 'line');
+        t.setAttribute('x1', x(i)); t.setAttribute('x2', x(i));
+        t.setAttribute('y1', 0); t.setAttribute('y2', H);
+        t.setAttribute('stroke', '#c99a2e');
+        t.setAttribute('stroke-dasharray', '2 2');
+        svg.append(t);
+    });
+    const label = `Context size at each of the last ${points.length} requests, up to ${short(Math.max(...points.map((p) => p[1])))} tokens; dashed lines are compactions.`;
+    svg.setAttribute('aria-label', label);
+    const title = document.createElementNS(NS, 'title');
+    title.textContent = label;
+    svg.append(title);
+    return svg;
+}
+
+function figureSections(c) {
+    const fg = c.figs;
+    const sm = figuresSummary(fg);
+    const out = [];
+
+    // Model: why replies stopped, speed, cache, parallel calls, the context curve.
+    if (sm.replies) {
+        const stops = Object.entries(fg.replies).sort((a, b) => b[1] - a[1])
+            .map(([k, n]) => `${n} ${STOP_LABELS[k] || k}`).join(' · ');
+        const info = sessions.get(c.id)?.agent?.contextInfo();
+        const model = [kvList([
+            ['Replies', stops],
+            ['Speed', sm.tokensPerSecond === null ? null : `${sm.tokensPerSecond.toFixed(1)} tokens/s while streaming`],
+            ['First token', sm.firstMsAvg === null ? null : `after ${seconds(Math.round(sm.firstMsAvg))} on average, ${seconds(Math.round(sm.firstMsMax))} at most`],
+            ['Cache', sm.coldShare === null ? null : `${fg.cache.cold} of ${fg.cache.requests} requests read nothing from it (${pct(sm.coldShare)})`],
+            ['Tool calls a step', sm.parallelAvg === null ? null : `${sm.parallelAvg.toFixed(1)} on average, ${fg.steps.maxParallel} at most`],
+        ])];
+        if (fg.context.length > 1) model.push(node('div', 'chart-head', 'Context size per request'), contextChart(fg.context, info?.limit));
+        out.push(fold('model', 'Model', `${sm.replies} replies`, ...model));
+    }
+
+    // Tools: one row per tool, then the Bash commands run most.
+    if (sm.tools.length) {
+        const grid = node('div', 'ttable');
+        for (const h of ['Tool', 'Calls', 'Failed', 'Median', 'Slowest', 'Output', 'Cut']) grid.append(node('span', 'th', h));
+        for (const t of sm.tools) {
+            grid.append(
+                node('span', '', t.name), node('span', 'n', String(t.calls)),
+                node('span', 'n', t.failed ? `${t.failed} (${pct(t.failRate)})` : '0'),
+                node('span', 'n', t.medianMs === null ? '—' : seconds(Math.round(t.medianMs))),
+                node('span', 'n', seconds(t.maxMs)),
+                node('span', 'n', `${short(t.avgChars)} ch`),
+                node('span', 'n', String(t.capped)),
+            );
+        }
+        const content = [grid];
+        const stopped = sm.tools.reduce((n, t) => n + t.stopped, 0);
+        if (stopped) content.push(node('p', 'note', `You stopped ${stopped} call${stopped === 1 ? '' : 's'}. "Cut" counts results cut to the output limit; "Output" is the average size before cutting.`));
+        else content.push(node('p', 'note', '"Cut" counts results cut to the output limit; "Output" is the average size, in characters, before cutting.'));
+        if (sm.bash.length) {
+            content.push(node('div', 'chart-head', 'Bash commands run most'),
+                node('p', 'mono', sm.bash.slice(0, 12).map(([w, n]) => `${w} ${n}`).join(' · ')));
+        }
+        const calls = sm.tools.reduce((n, t) => n + t.calls, 0);
+        out.push(fold('tools', 'Tools', `${calls} calls`, ...content));
+    }
+
+    // Time: the model, the guest, the page, and you. Parallel calls overlap.
+    const parts = [
+        ['model', 'Waiting on the model', c.stats.apiMs || 0, '#4f8fe0'],
+        ['vm', 'Tools in the VM', fg.via.vm || 0, '#2fb39a'],
+        ['page', 'Tools in the page', fg.via.page || 0, '#a07ae0'],
+        ['user', 'Waiting for your answers', fg.via.user || 0, '#c99a2e'],
+    ];
+    const total = parts.reduce((n, p) => n + p[2], 0);
+    if (total > 0) {
+        const seg = node('div', 'seg');
+        const rows = node('div', 'frows');
+        for (const [, label, ms, color] of parts) {
+            if (!ms) continue;
+            {
+                const sp = node('span');
+                sp.style.width = `${(ms / total) * 100}%`;
+                sp.style.background = color;
+                sp.title = `${label}: ${seconds(Math.round(ms))}`;
+                seg.append(sp);
+            }
+            const sw = node('span', 'sw');
+            sw.style.background = color;
+            rows.append(sw, node('span', '', label), node('span', 'n', seconds(Math.round(ms))), node('span', 'p', pct(ms / total)));
+        }
+        out.push(fold('time', 'Time', seconds(Math.round(total)), seg, rows,
+            node('p', 'note', 'Calls that ran side by side each count their own time, so this can add up to more than the time worked. Sub-agents count in all four.')));
+    }
+
+    // Sub-agents' outcomes.
+    const sb = fg.subs;
+    const ended = sb.done + sb.failed + sb.stopped + sb.interrupted;
+    if (c.kind !== 'sub' && ended) {
+        out.push(fold('subs', 'Sub-agents', `${ended} ended`, kvList([
+            ['Finished', String(sb.done)], ['Failed', String(sb.failed)], ['Stopped', String(sb.stopped)],
+            ['Interrupted by a reload', String(sb.interrupted)],
+            ['Asked again for a report', sb.wrapUps ? String(sb.wrapUps) : null],
+        ])));
+    }
+
+    // Interruptions: lost connections, browser pauses, resumes after a reload.
+    const br = fg.breaks;
+    if (br.outages || br.pauses || br.resumes) {
+        out.push(fold('breaks', 'Interruptions', null, kvList([
+            ['No connection', br.outages ? `${br.outages}×, waited ${seconds(Math.round(br.outageMs))}` : null],
+            ['Browser paused the page', br.pauses ? `${br.pauses}×, ${seconds(Math.round(br.pauseMs))}` : null],
+            ['Resumed after a reload', br.resumes ? `${br.resumes}×` : null],
+        ])));
+    }
+
+    // Rate limits, as the provider last reported them (any chat: they are the account's).
+    const lim = lastLimits || fg.limits;
+    const limContent = [];
+    if (lim?.list?.length) {
+        const sh = node('div', 'shares');
+        for (const l of lim.list) {
+            const bar = node('span', 'bar');
+            const fill = node('span');
+            const used = l.limit ? 1 - l.remaining / l.limit : 0;
+            fill.style.width = `${Math.max(0, Math.min(100, used * 100)).toFixed(1)}%`;
+            if (used > 0.9) fill.style.background = '#d05555';
+            else if (used > 0.7) fill.style.background = '#c99a2e';
+            bar.append(fill);
+            const reset = l.resetAt ? `resets ${l.resetAt <= Date.now() ? 'now' : `in ${seconds(Math.max(0, Math.round(l.resetAt - Date.now())))}`}` : '';
+            bar.title = `${l.remaining.toLocaleString()} of ${l.limit.toLocaleString()} left${reset ? `, ${reset}` : ''}`;
+            sh.append(node('span', '', l.name), bar, node('span', 'p', pct(used)));
+        }
+        limContent.push(sh, node('p', 'note', `Used of each limit, as the provider reported at ${new Date(lim.at).toLocaleTimeString()}. Hover a bar for what is left and when it resets.`));
+    } else {
+        limContent.push(node('p', 'note', 'No rate limits yet: the provider sends them with each response, if it lets the browser read them.'));
+    }
+    out.push(fold('limits', 'Rate limits', null, ...limContent));
+    return out;
 }
 document.addEventListener('click', (e) => {
     if (!$('chatInfo').hidden && !e.target.closest?.('#chatInfo, #chatInfoBtn')) toggleChatInfo(false);
@@ -2760,6 +3104,8 @@ function markSubsInterrupted(list) {
     for (const x of list) {
         if (x.kind !== 'sub' || x.status !== 'running' || sessions.get(x.id)?.running) continue;
         x.status = 'interrupted';
+        const parentChat = chatById(x.parent);
+        if (parentChat) recordSubAgent(parentChat.figs, 'interrupted');
         const s = sessionOf(x);
         if (!s.drawn) drawSession(s);
         inSession(s, () => addChatNote('problem', 'Interrupted: the page reloaded while this sub-agent worked.'));
@@ -2779,6 +3125,7 @@ function abandonTurn(c) {
  * chats that will carry on, or null if the chat can't be resumed (another kind
  * of model wrote it, say). */
 function resumeChat(c) {
+    c.figs.breaks.resumes++;
     const s = sessionOf(c);
     const p = connection.provider;
     if (!s.agent || s.conn !== connection) {
@@ -2835,6 +3182,11 @@ addEventListener('pagehide', () => { for (const c of chats) if (sessions.get(c.i
 pauses.on((ms, why) => {
     // The engine left the pause out of the guest's clock: set its date again.
     liveBridge?.syncClock().catch(() => {});
+    for (const [, x] of sessions) {
+        if (!x.running) continue;
+        x.chat.figs.breaks.pauses++;
+        x.chat.figs.breaks.pauseMs += Math.round(ms);
+    }
     if (!anyRunning()) return;
     addMessage('note', `⏸ The browser paused this page for ${seconds(Math.round(ms))}${why === 'frozen' ? ' (it froze the tab)' : ''}; `
         + 'tool timeouts leave that time out.');
@@ -2916,6 +3268,73 @@ function chooseMachine() {
 let machine = null;      // chooseMachine(), at startVM
 let VM_OPTIONS = null;   // vmOptions(machine)
 const vmState = { how: null, seconds: null, saved: null };   // for the VM tab
+let lastHealth = null;   // the guest after the latest Bash call (GuestBridge.parseHealth), any chat
+let lastLimits = null;   // the provider's latest rate limits (figures.js parseRateLimits)
+
+/* Boot and resume times across visits, for the VM tab: the latest BOOT_KEEP. */
+const BOOT_HISTORY = 'tinyemu-agent-boot-history';
+const BOOT_KEEP = 20;
+function bootHistory() {
+    try {
+        const list = JSON.parse(localStorage.getItem(BOOT_HISTORY));
+        return Array.isArray(list) ? list.filter((b) => b && Number.isFinite(b.seconds)) : [];
+    } catch { return []; }
+}
+function noteBoot(how, seconds) {
+    if (!Number.isFinite(seconds)) return;
+    const list = [...bootHistory(), { at: Date.now(), how, seconds, distro: machine?.distro ?? null }].slice(-BOOT_KEEP);
+    try { localStorage.setItem(BOOT_HISTORY, JSON.stringify(list)); } catch { /* no storage */ }
+}
+
+/* The engine's counters, sampled while the VM tab shows (and around VM tool
+ * calls): instructions per second now, and over the time tool calls ran. */
+const engine = { last: null, rate: null, busy: { cycles: 0, ms: 0 }, open: 0, openAt: null, timer: 0, stats: null };
+async function sampleEngine() {
+    if (!liveVM?.engineStats) return null;
+    try {
+        const st = await liveVM.engineStats();
+        const now = performance.now();
+        if (engine.last && st.cycles >= 0 && engine.last.cycles >= 0 && now > engine.last.at) {
+            engine.rate = ((st.cycles - engine.last.cycles) / (now - engine.last.at)) * 1000;
+        }
+        engine.last = { cycles: st.cycles, at: now };
+        engine.stats = st;
+        return { ...st, at: now };
+    } catch { return null; }
+}
+/* Whether a call runs in the guest (and so counts toward its speed during tool
+ * calls): Bash, Glob and Grep always; file calls unless the page serves them. */
+function needsGuest(call) {
+    if (['Bash', 'Glob', 'Grep'].includes(call.name)) return true;
+    if (!['Read', 'Edit', 'Write'].includes(call.name)) return false;
+    const p = String(call.input?.path || '');
+    return !settings.pageFiles || p.includes('..') || !/^\/(workspace|agent\/skills)(\/|$)/.test(p);
+}
+
+/* A tool call that needs the guest started or ended: time and count instructions
+ * from the first one open to the last one closed. */
+async function vmCallEdge(opening) {
+    if (opening) {
+        if (engine.open++ === 0) engine.openAt = await sampleEngine();
+        return;
+    }
+    if (engine.open === 0 || --engine.open > 0) return;
+    const start = engine.openAt;
+    engine.openAt = null;
+    const end = await sampleEngine();
+    if (start && end && start.cycles >= 0 && end.cycles >= start.cycles) {
+        engine.busy.cycles += end.cycles - start.cycles;
+        engine.busy.ms += end.at - start.at;
+    }
+}
+function watchEngine(on) {
+    clearInterval(engine.timer);
+    engine.timer = 0;
+    if (!on) return;
+    const tick = async () => { await sampleEngine(); renderVMStats(); };
+    tick();
+    engine.timer = setInterval(tick, 2000);
+}
 
 /* Each machine keeps its own saved state. alpine-3.20-x86, the default before
  * alpine-3.20-riscv64, keeps the key it always had, so its saved states resume. */
@@ -3020,6 +3439,38 @@ function renderVMStats() {
     row('Running', vmState.how ? `${vmState.how} in ${vmState.seconds} s` : 'starting…');
     row('Saved state', !snapshotFp ? 'off (?nosnapshot=1, or this browser can\'t fingerprint the VM)'
         : vmState.saved ? `${new Date(vmState.saved.at).toLocaleString()}, ${megabytes(vmState.saved.size)}` : 'none yet');
+    const st = engine.stats;
+    const mips = (r) => `${(r / 1e6).toFixed(r >= 1e7 ? 0 : 1)} M/s`;
+    if (st && st.cycles >= 0) {
+        row('Speed', [
+            engine.rate !== null ? `now ${mips(engine.rate)}` : null,
+            engine.busy.ms > 1000 ? `during tool calls ${mips((engine.busy.cycles / engine.busy.ms) * 1000)}` : null,
+        ].filter(Boolean).join(' · ') || 'measuring…');
+        row('Instructions', `${(st.cycles / 1e9).toFixed(2)} billion since ${vmState.how === 'resumed' ? 'the saved state was booted' : 'boot'}`);
+    } else if (st) {
+        row('Speed', 'this engine build doesn\'t count instructions');
+    }
+    if (st && st.diskChunks >= 0) row('Disk', `${st.diskChunks.toLocaleString()} chunks downloaded, ${formatSize(st.diskBytes)}`);
+    for (const [name, v] of Object.entries(st?.volumes || {})) {
+        row(`Volume ${name}`, `${v.reads.toLocaleString()} reads (${formatSize(v.readBytes)}), `
+            + `${v.writes.toLocaleString()} writes (${formatSize(v.writeBytes)})`);
+    }
+    if (lastHealth) {
+        const h = lastHealth;
+        const mem = h.memTotalKB ? `${Math.round((h.memAvailableKB ?? 0) / 1024)} MB free of ${Math.round(h.memTotalKB / 1024)} MB` : null;
+        row('Guest', [mem, h.load1 !== null ? `load ${h.load1} / ${h.load5} / ${h.load15}` : null,
+            h.procs ? `${h.procs} processes` : null].filter(Boolean).join(' · ')
+            + ` (after the last command, ${new Date(h.at).toLocaleTimeString()})`);
+    }
+    const boots = bootHistory();
+    const avg = (xs) => xs.reduce((n, b) => n + b.seconds, 0) / xs.length;
+    const cold = boots.filter((b) => b.how !== 'resumed');
+    const warm = boots.filter((b) => b.how === 'resumed');
+    if (boots.length) {
+        row('Starts', [cold.length ? `cold boot ${avg(cold).toFixed(0)} s on average (${cold.length})` : null,
+            warm.length ? `resume ${avg(warm).toFixed(1)} s (${warm.length})` : null].filter(Boolean).join(' · ')
+            + `, of the last ${boots.length} starts`);
+    }
 }
 
 // Volumes save themselves every 3 s; also try when the page goes away.
@@ -3202,6 +3653,7 @@ function showTab(tab) {
     else if (tab === 'skills') skills.refresh().then(renderSkills, () => {});
     else if (tab === 'vm') { renderVMStats(); renderDataStats(); }
     else $('term').scrollTop = $('term').scrollHeight;
+    watchEngine(tab === 'vm');   // sample the engine only while its figures show
 }
 $('tabConsole').onclick = () => showTab('console');
 $('tabFiles').onclick = () => showTab('files');
@@ -3535,6 +3987,7 @@ async function startVM() {
     bootEnd();
     vmState.how = how;
     vmState.seconds = bootSeconds();
+    noteBoot(how, Number(vmState.seconds));
     renderVMStats();
     setStatus('VM ready', 'ready');
     addMessage('note', `The VM is ready (${how} in ${bootSeconds()} s).${connection ? '' : ' Choose a provider, press Connect and pick a model.'}`);

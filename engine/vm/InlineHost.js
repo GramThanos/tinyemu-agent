@@ -62,5 +62,6 @@ export class InlineHost {
     snapshot(options) {
         return this.engine ? this.engine.snapshot(options) : Promise.reject(new Error('VM not running'));
     }
+    stats() { return this.engine ? Promise.resolve(this.engine.stats()) : Promise.reject(new Error('VM not running')); }
     stop() { this.engine?.stop(); }
 }

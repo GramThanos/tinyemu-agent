@@ -134,6 +134,7 @@ export class EmulatorEngine {
                 if (type === 'files') {
                     const store = await Fs9pStore.fromSpec(spec);
                     store.vol = this._api.fs9p.list.length;
+                    this._countIO(spec.name, store);
                     this._api.fs9p.list.push(store);
                     this._api.fs9p.byName[spec.name] = store;
                     this._stores.push(store);
@@ -164,6 +165,39 @@ export class EmulatorEngine {
                 this.sink.log('err', `volume '${spec.name}' setup failed: ` + (e && e.message || e));
             }
         }
+    }
+
+    /* Count the guest's 9p reads and writes on a volume, for stats(). */
+    _countIO(name, store) {
+        const c = { reads: 0, readBytes: 0, writes: 0, writeBytes: 0 };
+        (this._io ||= {})[name] = c;
+        const read = store.read.bind(store);
+        const write = store.write.bind(store);
+        store.read = (...a) => {
+            const r = read(...a);
+            c.reads++;
+            if (r && Number.isFinite(r.length)) c.readBytes += r.length;
+            return r;
+        };
+        store.write = (path, offset, src) => {
+            const r = write(path, offset, src);
+            c.writes++;
+            c.writeBytes += src?.length || 0;
+            return r;
+        };
+    }
+
+    /** Counters for the page (see VM.engineStats). Cheap: no C state is copied. */
+    stats() {
+        const M = this.Module;
+        const num = (sym) => (M && this._has(M, sym) ? M[sym]() : -1);
+        return {
+            cycles: this.running ? num('_vm_cycles') : -1,
+            diskChunks: num('_vm_disk_chunks'),
+            diskBytes: num('_vm_disk_bytes'),
+            volumes: JSON.parse(JSON.stringify(this._io || {})),
+            at: performance.now(),
+        };
     }
 
     _makeBackend(spec, type) {

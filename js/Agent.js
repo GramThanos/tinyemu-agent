@@ -598,16 +598,18 @@ export class Agent {
             let text = '';
             let thinking = '';
             let usage = null;
+            let firstMs = null;   // until the first token: the wait before streaming
+            const first = () => { if (firstMs === null) firstMs = Date.now() - started; };
             const step = await provider.step({
-                onText: (t) => { text += t; on.text?.(t); },
-                onThinking: (t) => { thinking += t; on.thinking?.(t); },
+                onText: (t) => { first(); text += t; on.text?.(t); },
+                onThinking: (t) => { first(); thinking += t; on.thinking?.(t); },
                 onUsage: (u) => { usage = u; this._noteUsage(u); },
                 signal,
             });
             this._log('response', {
                 step: index, stop: step.stop, detail: step.detail ?? null, text, thinking: thinking || undefined,
                 toolCalls: step.toolCalls?.map((c) => ({ id: c.id, name: c.name, input: c.input, ...(c.error ? { error: c.error } : {}) })),
-                usage, ms: Date.now() - started,
+                usage, ms: Date.now() - started, firstMs,
             });
             if (step.stop !== 'empty' || attempt >= valueOf(this.emptyRetries) || signal?.aborted) {
                 return step.stop === 'empty'
@@ -649,6 +651,7 @@ export class Agent {
         const { tools, on, provider } = this;
         if (signal?.aborted) return { id: call.id, content: 'Stopped by the user.', isError: true };
         const ctl = new AbortController();
+        const out = {};
         const stop = () => ctl.abort();
         signal?.addEventListener('abort', stop, { once: true });
         this.calls.set(call.id, ctl);
@@ -667,6 +670,7 @@ export class Agent {
                     callId: call.id,
                     meta: this.meta,
                     tools,      // Delegate gives its sub-agent these, less itself
+                    out,        // the tool's report for the log: where it ran, the guest's health
                 };
                 const work = run ? run(call, ctx) : tools.run(call.name, call.input, ctx);
                 // A stopped call answers at once, even if its tool doesn't watch the signal.
@@ -689,13 +693,20 @@ export class Agent {
             this.calls.delete(call.id);
         }
         let content = String(result.content ?? '');
-        if (ctl.signal.aborted && !signal?.aborted) {
+        const stoppedByUser = ctl.signal.aborted && !signal?.aborted;
+        if (stoppedByUser) {
             content = `${content}${content ? '\n' : ''}[The user stopped this tool call; the rest of your work goes on. `
                 + 'Don\'t simply run it again: consider why it was stopped.]';
         }
+        const chars = content.length;
+        const via = out.via ?? null;          // where it ran: vm, page, user or model (tools.js)
+        const health = out.health ?? null;    // the guest's memory and load after a Bash call
         result = { content: limitToolOutput(content, this._outputCap()), isError: !!result.isError || ctl.signal.aborted };
         const ms = Date.now() - started;
-        this._log('tool', { id: call.id, name: call.name, input: call.input, content: result.content, isError: result.isError, ms });
+        this._log('tool', {
+            id: call.id, name: call.name, input: call.input, content: result.content, isError: result.isError, ms,
+            chars, capped: result.content.length < chars, stopped: stoppedByUser, via, health,
+        });
         on.toolEnd?.(call, result, { ms });
         return { id: call.id, ...result };
     }

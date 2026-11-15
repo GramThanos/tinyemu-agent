@@ -671,7 +671,7 @@ exit 0`,
             return shown.join('\n');
         },
 
-        async Bash({ command, timeout, run_in_background = false, shell }, { signal, onOutput }, own) {
+        async Bash({ command, timeout, run_in_background = false, shell }, { signal, onOutput, out }, own) {
             if (shell !== undefined && !SHELL_NAME.test(shell)) {
                 throw new ToolError('shell must be 1 to 40 letters, digits, dots, dashes or underscores.');
             }
@@ -705,6 +705,7 @@ echo "$! $J"`,
                 signal,
                 onOutput: onOutput && ((chunk) => onOutput(streamDec.decode(chunk, { stream: true }))),
             });
+            if (out) out.health = r.health ?? null;   // for the page's statistics
             // Only a real change counts: a parallel call that didn't cd or export
             // mustn't undo one that did.
             if (r.cwd && r.cwd !== startedIn) sh.cwd = r.cwd;
@@ -742,6 +743,15 @@ echo "$! $J"`,
         }
         const problem = validateInput(def.input_schema, input);
         if (problem) return { content: `Invalid input: ${problem}.`, isError: true };
+        // For statistics, into ctx.out if the caller gives one: where the call ran,
+        // via 'vm' (the guest), 'page' (served here), 'user' (ask_user) or 'model'
+        // (a sub-agent); a Bash call adds the guest's health (GuestBridge.parseHealth).
+        const served = FILE_TOOLS.has(name) && route(abs(input.path, sh));
+        if (ctx.out) ctx.out.via = name === ASK_TOOL ? 'user' : name === DELEGATE_TOOL ? 'model' : name === SKILL_TOOL || served ? 'page' : 'vm';
+        return runChecked(name, input, ctx, sh, served);
+    }
+
+    async function runChecked(name, input, ctx, sh, served) {
         try {
             if (name === ASK_TOOL) {
                 const questions = askQuestions(input);
@@ -757,7 +767,7 @@ echo "$! $J"`,
                 }
             }
             // A file on a JS volume needs no guest, so it doesn't wait for one.
-            if (!(FILE_TOOLS.has(name) && route(abs(input.path, sh)))) {
+            if (!served) {
                 await waitForBridge(ctx);
                 if (bootError) throw new ToolError(`The VM failed to boot (${bootError.message}), so no tool can run.`);
             }

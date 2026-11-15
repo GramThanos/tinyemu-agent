@@ -82,9 +82,27 @@ while [ ! -e "$D/exited" ] && kill -0 $pid 2>/dev/null; do
 done
 wait $pid
 rc=$?
+{ cat /proc/loadavg; grep -E '^(MemTotal|MemAvailable):' /proc/meminfo; } >"$D/health" 2>/dev/null
 echo $rc >"$D/rc.tmp"
 mv "$D/rc.tmp" "$D/rc"
 `;
+
+/**
+ * The guest's state after a job (written by JOB from /proc, before rc): load
+ * averages, runnable/total processes, and memory in KB; null if unreadable.
+ * @param {string|null} text
+ */
+export function parseHealth(text) {
+    if (!text) return null;
+    const m = /^([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\/(\d+)/m.exec(text);
+    const kb = (name) => { const r = new RegExp(`^${name}:\\s+(\\d+)`, 'm').exec(text); return r ? Number(r[1]) : null; };
+    const h = {
+        load1: m ? Number(m[1]) : null, load5: m ? Number(m[2]) : null, load15: m ? Number(m[3]) : null,
+        running: m ? Number(m[4]) : null, procs: m ? Number(m[5]) : null,
+        memTotalKB: kb('MemTotal'), memAvailableKB: kb('MemAvailable'),
+    };
+    return Object.values(h).every((v) => v === null) ? null : h;
+}
 
 /* Run once agentd answers, after a boot and after a resume. /proc isn't mounted
  * when the distro boots straight into a shell; the agent's ps and top need it, and
@@ -258,6 +276,7 @@ export class GuestBridge {
                 aborted: !!signal?.aborted,
                 overflow,
                 files,
+                health: parseHealth(await text('health')),
             };
         } finally {
             await vm.volumeDelete(VOLUME, dir).catch(() => {});

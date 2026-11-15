@@ -9,6 +9,8 @@
 
 'use strict';
 
+
+import { parseRateLimits } from '../figures.js';
 /* Providers offered by name. Anything else goes in as a custom base URL. */
 export const OPENAI_PRESETS = [
     { id: 'gemini', label: 'Gemini (Google AI Studio)', baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai' },
@@ -217,6 +219,7 @@ export class OpenAICompatProvider {
     async step({ onText, onThinking, onUsage, signal }) {
         const response = await this._request(signal);
         if (!response) return { stop: 'aborted' };
+        const limits = parseRateLimits(response.headers);
 
         let text = '';
         let finish = null;
@@ -228,7 +231,7 @@ export class OpenAICompatProvider {
                 const chunk = JSON.parse(data);
                 if (chunk.error) throw new Error(errorMessage(chunk.error.code || 'in stream', JSON.stringify(chunk)));
                 // Asked for with include_usage: a last chunk, usually with no choices.
-                if (chunk.usage) onUsage?.(openAIUsage(chunk.usage));
+                if (chunk.usage) onUsage?.({ ...openAIUsage(chunk.usage), ...(limits ? { limits } : {}) });
                 const choice = chunk.choices?.[0];
                 if (!choice) continue;
                 const d = choice.delta || {};
