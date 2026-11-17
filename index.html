@@ -331,6 +331,11 @@
         <label><input type="checkbox" id="optPageFiles"> Serve Read, Edit and Write of <code>/workspace</code> and
           <code>/agent/skills</code> from the page, which is faster
           <span class="hint">(off: every file call goes through the VM, as for other paths)</span></label>
+        <label><input type="checkbox" id="optBashJs"> Run Bash commands with <a href="https://github.com/GramThanos/bash.js"
+          target="_blank" rel="noopener">bash.js</a> in the page instead of the VM
+          <span class="hint">(fast, and works while the VM is busy, but only bash and its own commands, such as grep,
+          sed, awk and find: no programs from the VM. It sees /workspace, /agent/skills and an in-memory /tmp, nothing
+          else. The model is told.)</span></label>
       </div>
       <h2>Keep running</h2>
       <p class="hint">A browser stops a page it thinks nobody is using: the computer goes to sleep, or a background
@@ -529,6 +534,7 @@ import {
 } from './js/tools.js';
 import { pauses } from './js/pause.js';
 import { createKeepAwake } from './js/keepAwake.js';
+import { createJsBash } from './js/bashjs.js';
 import { SKILL_FILE, SkillLibrary, SKILLS_DIR, SKILLS_STORAGE_KEY, SKILLS_VOLUME } from './js/skills.js';
 import {
     Agent, createDelegate, EMPTY_RETRIES, MAX_STEPS, renderPrompt, SUBAGENT_MAX_STEPS, subagentPrompt, SYSTEM_PROMPT, toolArgText,
@@ -1179,6 +1185,7 @@ const LIMITS = {
 const SETTINGS_DEFAULT = {
     disabledTools: [], disabledSkills: [], mentions: true, thinking: true, effort: {},
     pageFiles: true,      // Read/Edit/Write of the JS volumes served from the page
+    bashJs: false,        // Bash runs in bash.js in the page, not in the VM (js/bashjs.js)
     wakeLock: true,       // a Screen Wake Lock while a turn runs
     keepAudio: false,     // a quiet tone while a turn runs, so the tab isn't frozen (js/keepAwake.js)
     compactAuto: true, compactAt: 80, contextWindow: null,
@@ -1197,6 +1204,7 @@ const settings = (() => {
     if (!(Number.isInteger(s.contextWindow) && s.contextWindow >= 1000)) s.contextWindow = null;
     if (typeof s.systemPrompt !== 'string' || !s.systemPrompt.trim()) s.systemPrompt = null;
     if (typeof s.pageFiles !== 'boolean') s.pageFiles = true;
+    if (typeof s.bashJs !== 'boolean') s.bashJs = false;
     if (typeof s.wakeLock !== 'boolean') s.wakeLock = SETTINGS_DEFAULT.wakeLock;
     if (typeof s.keepAudio !== 'boolean') s.keepAudio = SETTINGS_DEFAULT.keepAudio;
     for (const key of Object.keys(LIMITS)) if (!inLimits(key, s[key])) s[key] = SETTINGS_DEFAULT[key];
@@ -1229,15 +1237,26 @@ function promptVars() {
     // the prompt at every send, so it is filled in once the machine is known.
     let m = null;
     try { m = machine; } catch { /* not declared yet */ }
-    if (!m || m.custom) return { ARCH: 'see uname -m', OS_NAME: 'Linux' };
+    const model = modelVars();
+    if (!m || m.custom) return { ARCH: 'see uname -m', OS_NAME: 'Linux', ...model };
     const d = distroInfo(m.distro);
-    return { ARCH: d.arch, OS_NAME: (d.label || d.name).replace(/\s*\([^)]*\)$/, '') };
+    return { ARCH: d.arch, OS_NAME: (d.label || d.name).replace(/\s*\([^)]*\)$/, ''), ...model };
+}
+/* The connected model: its name as the provider lists it, and its id. Until a
+ * model is connected the placeholders stay as written. */
+function modelVars() {
+    let c = null;
+    try { c = connection; } catch { /* not declared yet */ }
+    if (!c) return {};
+    return { MODEL_NAME: c.modelName || c.provider?.model || '', MODEL_ID: c.provider?.model || '' };
 }
 /* What each variable is, for the list under the Settings editor. Every name
  * promptVars() returns needs a line here. */
 const PROMPT_VAR_HELP = {
     ARCH: 'the VM\'s processor, from the system chosen in the VM tab',
     OS_NAME: 'the VM\'s system (distribution and version)',
+    MODEL_NAME: 'the connected model\'s name, as its provider lists it (Claude Opus 5.5)',
+    MODEL_ID: 'the connected model\'s id (claude-opus-5-5)',
 };
 /* The system prompt in use, placeholders filled in. */
 const currentSystem = () => renderPrompt(systemTemplate(), promptVars());
@@ -1337,12 +1356,14 @@ function renderSettings() {
     $('optMentions').checked = settings.mentions;
     $('optThinking').checked = settings.thinking;
     $('optPageFiles').checked = settings.pageFiles;
+    $('optBashJs').checked = settings.bashJs;
     $('optWakeLock').checked = settings.wakeLock;
     $('optKeepAudio').checked = settings.keepAudio;
     $('chatView').classList.toggle('hide-thinking', !settings.thinking);
 }
 $('optMentions').onchange = () => { settings.mentions = $('optMentions').checked; saveSettings(); };
 $('optPageFiles').onchange = () => { settings.pageFiles = $('optPageFiles').checked; saveSettings(); };
+$('optBashJs').onchange = () => { settings.bashJs = $('optBashJs').checked; saveSettings(); };
 
 /* ---- keeping the page running while the agent works ------------------------ */
 
@@ -1943,6 +1964,8 @@ const links = new LinkedFolders({ volume: WORKSPACE_VOLUME, root: WORKSPACE });
  * Off until the VM exists, off again if the guest turns out not to have the
  * volumes mounted where the paths say, and off while Settings turns it off. */
 const VOLUME_MOUNTS = [[WORKSPACE, WORKSPACE_VOLUME], [SKILLS_DIR, SKILLS_VOLUME]];
+/* Bash in bash.js, on the same volumes (Settings → Features; js/bashjs.js). */
+const jsBash = createJsBash({ vm: () => liveVM, mounts: VOLUME_MOUNTS });
 const pageFiles = {
     vm: null,
     mounted: true,
@@ -1978,6 +2001,7 @@ const tools = createTools(new Promise((resolve, reject) => { vmReady = { resolve
     isEnabled: (name) => !settings.disabledTools.includes(name),
     files: pageFiles,
     bashTimeoutMs: () => settings.bashTimeoutMin * 60000,
+    jsBash: () => (settings.bashJs ? jsBash : null),
 });
 /* Each chat's agent runs Bash in a shell of its own, so chats working at once
  * don't move each other's directory. */
@@ -2087,7 +2111,11 @@ async function chooseModel() {
 /* Connect to a model: it becomes the connection, and the open chat's agent
  * (unless that is a sub-agent's chat). */
 function useProvider(provider, label, { quiet = false } = {}) {
-    connection = { provider, label };
+    // The model's name as the listing gave it, without the id in brackets.
+    let listed = null;
+    try { listed = listedModels.find((m) => m.id === provider.model); } catch { /* none listed */ }
+    const modelName = (listed?.label || '').replace(/\s*\([^)]*\)$/, '') || provider.model || label;
+    connection = { provider, label, modelName };
     const s = ses();
     if (chat.kind !== 'sub' && !s.running) {
         // Keep what the agent so far had, for the new one to carry on.
@@ -3305,7 +3333,8 @@ async function sampleEngine() {
 /* Whether a call runs in the guest (and so counts toward its speed during tool
  * calls): Bash, Glob and Grep always; file calls unless the page serves them. */
 function needsGuest(call) {
-    if (['Bash', 'Glob', 'Grep'].includes(call.name)) return true;
+    if (call.name === 'Bash') return !settings.bashJs || !!call.input?.run_in_background;
+    if (['Glob', 'Grep'].includes(call.name)) return true;
     if (!['Read', 'Edit', 'Write'].includes(call.name)) return false;
     const p = String(call.input?.path || '');
     return !settings.pageFiles || p.includes('..') || !/^\/(workspace|agent\/skills)(\/|$)/.test(p);

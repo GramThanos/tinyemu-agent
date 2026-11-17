@@ -146,6 +146,8 @@ export class VM {
     volumeDelete(volName, path) { return this._host?.volOp('delete', volName, { path }); }
     /** Ensure a directory (and parents) exists in a live volume. */
     volumeMkdir(volName, path) { return this._host?.volOp('mkdir', volName, { path }); }
+    /** Move a file or folder within a volume: 0, or a negative errno. */
+    volumeRename(volName, from, to) { return this._host?.volOp('rename', volName, { from, to }); }
     /** Force-persist one volume to its backend now. */
     volumeFlush(volName) { return this._host?.volOp('flush', volName, {}); }
 

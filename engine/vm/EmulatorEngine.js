@@ -309,6 +309,7 @@ export class EmulatorEngine {
             case 'list':   return store.listDir(args.path);
             case 'delete': return store.removePath(args.path);
             case 'mkdir':  store._mkdirp(args.path); return 0;
+            case 'rename': return store.rename(args.from, args.to);
             case 'flush':  await store.flush(); return 0;
             default: throw new Error(`unknown volume op '${op}'`);
         }

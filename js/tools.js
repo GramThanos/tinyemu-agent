@@ -112,6 +112,26 @@ export const DEFAULT_SHELL = 'main';
 function minutes(ms) { return `${+(ms / 60000).toFixed(2)} minute${ms === 60000 ? '' : 's'}`; }
 
 /** The Bash definition. Its description names the default timeout, which the user can set. */
+/* What bash.js runs besides its builtins (vendor/bash.js, Settings → Features). */
+export const BASHJS_UTILITIES = 'cat, ls, mkdir, rm, mv, dirname, head, tail, wc, nl, sort, uniq, cut, grep, rg, find, sed, awk, diff, patch, date, echo, printf';
+
+/** The Bash tool as it runs in bash.js, in the page, instead of in the VM. */
+export function bashJsDef(defaultMs = BASH_DEFAULT_MS) {
+    return {
+        name: 'Bash',
+        description: `Runs a command in bash.js, a bash interpreter inside the page, not in the VM. It understands bash itself (pipes, redirections, here-documents, variables, functions, if/for/while/case, $(...), globs), and besides the builtins only these commands exist: ${BASHJS_UTILITIES}. No other program runs: no python, make, apk, curl, git or compilers. Its filesystem has only /workspace and /agent/skills (the same files the VM sees) and /tmp (in memory, not the VM's /tmp); files are UTF-8 text. A shell keeps its directory, variables and functions between calls. Output is stdout and stderr merged. Background jobs (&) run to completion before the call returns.`,
+        input_schema: {
+            type: 'object',
+            properties: {
+                command: { type: 'string', description: 'Bash command string.' },
+                timeout: { type: 'integer', description: `Maximum runtime in milliseconds. Default: ${defaultMs} (${minutes(defaultMs)}). Maximum: ${BASH_MAX_MS} (2 hours).` },
+                shell: { type: 'string', description: 'The shell session to run in: up to 40 letters, digits, dots, dashes or underscores. A new name opens a new shell, which starts in your current directory. Default: your own shell.' },
+            },
+            required: ['command'],
+        },
+    };
+}
+
 export function bashDef(defaultMs = BASH_DEFAULT_MS) {
     return {
         name: 'Bash',
@@ -435,8 +455,10 @@ const FILE_TOOLS = new Set(['Read', 'Edit', 'Write']);
  */
 export function createTools(bridgeOrPromise, {
     cwd = DEFAULT_CWD, readyTimeoutMs = READY_TIMEOUT_MS, skills = null, delegate = null, ask = null, isEnabled = () => true,
-    sync = null, files = null, bashTimeoutMs = () => BASH_DEFAULT_MS, env = () => ({}),
+    sync = null, files = null, bashTimeoutMs = () => BASH_DEFAULT_MS, env = () => ({}), jsBash = () => null,
 } = {}) {
+    /* The bash.js runner (js/bashjs.js) when Settings sends Bash there, else null. */
+    const jsShell = () => { try { return jsBash() || null; } catch { return null; } };
     const syncQuietly = async () => { try { await sync?.(); } catch { /* the call still runs */ } };
     // Every variable name the user has set while these tools lived (see withUserEnv).
     const managedEnv = new Set();
@@ -466,7 +488,7 @@ export function createTools(bridgeOrPromise, {
     const defs = () => {
         // Only the skills the user has left on (a SkillLibrary has enabled()).
         const skill = skills && skillToolDef(skills.enabled ? skills.enabled() : skills.list());
-        const base = TOOL_DEFS.map((d) => (d.name === 'Bash' ? bashDef(defaultTimeout()) : d));
+        const base = TOOL_DEFS.map((d) => (d.name === 'Bash' ? (jsShell() ? bashJsDef : bashDef)(defaultTimeout()) : d));
         return [...base, skill, delegate && DELEGATE_DEF, ask && ASK_DEF].filter((d) => d && isEnabled(d.name));
     };
     let bridge = null;
@@ -676,6 +698,21 @@ exit 0`,
                 throw new ToolError('shell must be 1 to 40 letters, digits, dots, dashes or underscores.');
             }
             const sh = shell ? shellOf(shell, own) : own;
+            const js = jsShell();
+            if (js) {
+                if (run_in_background) throw new ToolError('run_in_background needs the VM; bash.js runs a command to its end.');
+                const timeoutMs = Math.min(Math.max(1000, timeout ?? defaultTimeout()), BASH_MAX_MS);
+                const r = await js.run({ command, shell: sh.name, cwd: sh.cwd, env: userEnv(), timeoutMs, signal, onOutput });
+                if (r.cwd && r.cwd !== sh.cwd) sh.cwd = r.cwd;
+                let text = r.out;
+                const notes = [];
+                if (r.aborted) notes.push('Stopped by the user.');
+                else if (r.timedOut) notes.push(`Timed out after ${Math.round(timeoutMs / 1000)} s.`);
+                else if (r.rc !== 0) notes.push(`Exit code ${r.rc}.`);
+                if (notes.length) text = `${text}${text && !text.endsWith('\n') ? '\n' : ''}[${notes.join(' ')}]`;
+                if (r.rc !== 0 || r.aborted || r.timedOut) throw new ToolError(text);
+                return text || '(no output)';
+            }
             const envScript = withUserEnv(sh.env, userEnv(), managedEnv);
             const env = envScript ? { env: envScript } : {};
             if (run_in_background) {
@@ -747,7 +784,8 @@ echo "$! $J"`,
         // via 'vm' (the guest), 'page' (served here), 'user' (ask_user) or 'model'
         // (a sub-agent); a Bash call adds the guest's health (GuestBridge.parseHealth).
         const served = FILE_TOOLS.has(name) && route(abs(input.path, sh));
-        if (ctx.out) ctx.out.via = name === ASK_TOOL ? 'user' : name === DELEGATE_TOOL ? 'model' : name === SKILL_TOOL || served ? 'page' : 'vm';
+        const inPage = served || name === SKILL_TOOL || (name === 'Bash' && jsShell() && !input.run_in_background);
+        if (ctx.out) ctx.out.via = name === ASK_TOOL ? 'user' : name === DELEGATE_TOOL ? 'model' : inPage ? 'page' : 'vm';
         return runChecked(name, input, ctx, sh, served);
     }
 
