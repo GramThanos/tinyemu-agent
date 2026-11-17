@@ -112,6 +112,19 @@ export const DEFAULT_SHELL = 'main';
 function minutes(ms) { return `${+(ms / 60000).toFixed(2)} minute${ms === 60000 ? '' : 's'}`; }
 
 /** The Bash definition. Its description names the default timeout, which the user can set. */
+/**
+ * The note a Bash result gets when the call moved its shell's directory (a
+ * `cd`, even inside `cd x && cmd`). The shell stays there for later calls, which
+ * models easily lose track of; a weak one then writes half its files elsewhere.
+ * @param {string} to       the new directory
+ * @param {string|null} shell  the shell named in the call, or null for the caller's own
+ */
+export function movedNote(to, shell = null) {
+    return shell
+        ? `The shell ${shell} is now in ${to}; its later commands start there.`
+        : `The working directory is now ${to}: later Bash commands, and relative paths in Read, Edit, Write, Glob and Grep, start there.`;
+}
+
 /* What bash.js runs besides its builtins (vendor/bash.js, Settings → Features). */
 export const BASHJS_UTILITIES = 'cat, ls, mkdir, rm, mv, dirname, head, tail, wc, nl, sort, uniq, cut, grep, rg, find, sed, awk, diff, patch, date, echo, printf';
 
@@ -703,12 +716,14 @@ exit 0`,
                 if (run_in_background) throw new ToolError('run_in_background needs the VM; bash.js runs a command to its end.');
                 const timeoutMs = Math.min(Math.max(1000, timeout ?? defaultTimeout()), BASH_MAX_MS);
                 const r = await js.run({ command, shell: sh.name, cwd: sh.cwd, env: userEnv(), timeoutMs, signal, onOutput });
-                if (r.cwd && r.cwd !== sh.cwd) sh.cwd = r.cwd;
+                const moved = !!r.cwd && r.cwd !== sh.cwd;
+                if (moved) sh.cwd = r.cwd;
                 let text = r.out;
                 const notes = [];
                 if (r.aborted) notes.push('Stopped by the user.');
                 else if (r.timedOut) notes.push(`Timed out after ${Math.round(timeoutMs / 1000)} s.`);
                 else if (r.rc !== 0) notes.push(`Exit code ${r.rc}.`);
+                if (moved) notes.push(movedNote(sh.cwd, shell ?? null));
                 if (notes.length) text = `${text}${text && !text.endsWith('\n') ? '\n' : ''}[${notes.join(' ')}]`;
                 if (r.rc !== 0 || r.aborted || r.timedOut) throw new ToolError(text);
                 return text || '(no output)';
@@ -745,7 +760,8 @@ echo "$! $J"`,
             if (out) out.health = r.health ?? null;   // for the page's statistics
             // Only a real change counts: a parallel call that didn't cd or export
             // mustn't undo one that did.
-            if (r.cwd && r.cwd !== startedIn) sh.cwd = r.cwd;
+            const moved = !!r.cwd && r.cwd !== startedIn;
+            if (moved) sh.cwd = r.cwd;
             const after = r.files?.['env.after'];
             if (after) {
                 const next = shellEnv(DEC.decode(after));
@@ -759,6 +775,7 @@ echo "$! $J"`,
             else if (r.timedOut) notes.push(`Timed out after ${Math.round(timeoutMs / 1000)} s and was killed.`);
             else if (r.overflow) notes.push('Killed: the command produced too much output.');
             else if (r.rc !== 0) notes.push(`Exit code ${r.rc}.`);
+            if (moved) notes.push(movedNote(sh.cwd, shell ?? null));
             if (notes.length) text = `${text}${text && !text.endsWith('\n') ? '\n' : ''}[${notes.join(' ')}]`;
             if (r.rc !== 0 || r.aborted || r.timedOut) throw new ToolError(text);
             return text || '(no output)';
