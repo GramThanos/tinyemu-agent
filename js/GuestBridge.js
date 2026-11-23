@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * GuestBridge.js — runs scripts inside a booted guest, out of band from the console.
  *
@@ -127,7 +128,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const PROMPT = /[#$]\s*$|(^|\n)\S{0,40} ?[#$] /;
 
 export class GuestBridge {
-    /** @param {import('../../js/vm/VM.js').VM} vm  started VM with the `agent` volume */
+    /** @param {import('../deps/jsLab/lib/vm/VM.js').VM} vm  started VM with the `agent` volume */
     constructor(vm) {
         this.vm = vm;
         this.ready = false;

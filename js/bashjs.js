@@ -1,6 +1,7 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * bashjs.js — the Bash tool without the VM: commands run in bash.js, a bash
- * interpreter written in JavaScript (../vendor/bash.js), inside the page.
+ * interpreter written in JavaScript (deps/bash.js, a submodule), inside the page.
  *
  * Off by default (Settings → Features). What the commands see is not the guest's
  * filesystem but the page's own volumes, the same stores the guest mounts over 9p:
@@ -25,7 +26,7 @@ const DEC = new TextDecoder();
  * script, which in a module sets globalThis.BashJS. */
 let loading = null;
 export function loadBashJS() {
-    loading ||= import('../vendor/bash.js').then((m) => m?.default?.exec ? m.default : globalThis.BashJS);
+    loading ||= import('../deps/bash.js/bash.js').then((m) => m?.default?.exec ? m.default : globalThis.BashJS);
     return loading;
 }
 

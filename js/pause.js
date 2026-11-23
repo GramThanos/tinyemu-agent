@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * pause.js — noticing when the browser stopped running this page.
  *

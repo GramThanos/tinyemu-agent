@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -486,6 +487,9 @@
       <div class="toggles">
         <label>System <select id="vmConfig"></select></label>
         <label>Memory <select id="vmMemory"></select></label>
+        <label><input type="checkbox" id="vmJit"> x86 JIT <span class="tdesc">compiles hot x86 code to WebAssembly,
+          about a quarter faster. Turn it off to run on the interpreter alone, e.g. to rule the JIT out of a problem.
+          RISC-V machines don't use it. Changing it boots the VM afresh, in place of its saved state.</span></label>
         <p class="hint" id="vmConfigNote"></p>
         <div class="sysbar"><button id="vmApply" disabled>Restart with these</button></div>
       </div>
@@ -524,7 +528,7 @@
 </main>
 
 <script type="module">
-import { SnapshotStore, snapshotFingerprint, VMManager } from './engine/vm/index.js';
+import { SnapshotStore, snapshotFingerprint, VMManager } from './deps/jsLab/lib/vm/index.js';
 import { GuestBridge, VOLUME, WORKSPACE, WORKSPACE_VOLUME } from './js/GuestBridge.js';
 import { asText, FileBrowser, formatSize, readEntry } from './js/FileBrowser.js';
 import { ChatStore, MAX_EXCHANGES, MemoryChatStore, newChat, pickChat, titleFrom } from './js/chats.js';
@@ -3258,9 +3262,10 @@ let liveVM = null;
 /* The machine: which distro (its disk and processor) and how much memory. The VM
  * tab picks them and keeps the choice in this browser; ?distro=, ?mem= and ?cfg=
  * override it for one load. A distro name that isn't a plain folder name is
- * ignored, so a link can't point outside distro/. distro/index.json (serve.mjs,
- * scripts/build.mjs) lists the distros; without it only the default is offered. */
-const DEFAULT_DISTRO = 'alpine-3.20-riscv64';
+ * ignored, so a link can't point outside distro/. distro/index.json
+ * (scripts/serve.mjs, scripts/build.mjs) lists the distros; without it only the
+ * default is offered. */
+const DEFAULT_DISTRO = 'debian-13-riscv64-lite';
 const DISTRO_NAME = /^[\w-][\w.-]*$/;
 const MEMORY_SIZES = [128, 256, 512];
 const DEFAULT_MEMORY = 256;
@@ -3291,7 +3296,10 @@ function chooseMachine() {
     if (!distro) distro = offered(DEFAULT_DISTRO) || !distroList.length ? DEFAULT_DISTRO : (distroList.find(runnable)?.name ?? DEFAULT_DISTRO);
     const memParam = parseInt(params.get('mem'), 10);
     const memoryMB = memParam > 0 ? memParam : MEMORY_SIZES.includes(vmPrefs.memoryMB) ? vmPrefs.memoryMB : DEFAULT_MEMORY;
-    return { distro, memoryMB, custom: params.get('cfg') || null };
+    // The x86 JIT is on unless ?jit=0 or the VM tab turned it off.
+    const jitParam = params.get('jit');
+    const jit = jitParam === '0' ? false : jitParam === '1' ? true : vmPrefs.jit !== false;
+    return { distro, memoryMB, jit, custom: params.get('cfg') || null };
 }
 let machine = null;      // chooseMachine(), at startVM
 let VM_OPTIONS = null;   // vmOptions(machine)
@@ -3370,10 +3378,11 @@ function watchEngine(on) {
 const snapshotKey = () => (machine.custom ? 'tinyemu-agent-vm:custom'
     : machine.distro === 'alpine-3.20-x86' ? 'tinyemu-agent-vm' : `tinyemu-agent-vm:${machine.distro}`);
 
-const vmOptions = ({ distro, memoryMB, custom }) => ({
+const vmOptions = ({ distro, memoryMB, jit, custom }) => ({
     // A distro's guest.cfg names its kernel and disk relative to itself, so the
-    // page works from any static host and path. serve.mjs generates it; a release
-    // build (scripts/build.mjs) writes it next to the distro. ?cfg= boots any config.
+    // page works from any static host and path. scripts/serve.mjs generates it; a
+    // release build (scripts/build.mjs) writes it next to the distro. ?cfg= boots
+    // any config.
     configUrl: custom || `distro/${distro}/guest.cfg`,
     mode: 'worker',
     memoryMB,
@@ -3396,6 +3405,14 @@ const vmOptions = ({ distro, memoryMB, custom }) => ({
     hasNetwork: false,
     cols: 80,
     rows: 24,
+    // The engine's x86 -> WebAssembly JIT (x86_jit.c): on unless the VM tab or
+    // ?jit=0 turns it off. See README.md for its numbers.
+    // Only x86 machines get it, so a RISC-V saved state doesn't depend on it.
+    x86jit: jit && (!!custom || distroInfo(distro).arch === 'x86'),
+    // ?jittail=1: chain compiled pages with WebAssembly tail calls instead of
+    // through C. Measured slower (2026-11-22), so off; kept for A/B runs as
+    // browsers change. See x86_jit.c, x86_jit_next.
+    x86jitTailcalls: params.get('jittail') === '1',
     volumes: [
         { name: VOLUME, backend: 'indexeddb', type: 'files', storageKey: 'tinyemu-agent-bridge' },
         { name: WORKSPACE_VOLUME, backend: 'indexeddb', type: 'files', storageKey: 'tinyemu-agent-workspace' },
@@ -3420,7 +3437,8 @@ function fillVMTab() {
     const mem = $('vmMemory');
     mem.replaceChildren(...[...new Set([...MEMORY_SIZES, machine.memoryMB])].sort((a, b) => a - b).map((n) => new Option(`${n} MB`, String(n))));
     mem.value = String(machine.memoryMB);
-    const overridden = ['distro', 'mem', 'cfg'].filter((k) => params.has(k));
+    $('vmJit').checked = machine.jit;
+    const overridden = ['distro', 'mem', 'cfg', 'jit'].filter((k) => params.has(k));
     $('vmConfigNote').textContent = overridden.length
         ? `This page's link sets ${overridden.map((k) => `?${k}=`).join(', ')}; restarting from here drops it and uses what you pick.`
         : '';
@@ -3429,24 +3447,32 @@ function fillVMTab() {
 function vmChoiceChanged() {
     const distro = $('vmConfig').value;
     const memoryMB = Number($('vmMemory').value);
-    $('vmApply').disabled = !distro || (!machine.custom && distro === machine.distro && memoryMB === machine.memoryMB);
+    const jit = $('vmJit').checked;
+    // A RISC-V machine doesn't use the JIT, so the box doesn't count for it.
+    const x86 = !distro || distroInfo(distro).arch === 'x86';
+    $('vmJit').disabled = !x86;
+    $('vmApply').disabled = !distro
+        || (!machine.custom && distro === machine.distro && memoryMB === machine.memoryMB && (!x86 || jit === machine.jit));
 }
 $('vmConfig').onchange = vmChoiceChanged;
 $('vmMemory').onchange = vmChoiceChanged;
+$('vmJit').onchange = vmChoiceChanged;
 $('vmApply').onclick = async () => {
     const distro = $('vmConfig').value;
     const memoryMB = Number($('vmMemory').value);
+    const jit = $('vmJit').checked;
     if (!distro) return;
-    if (!confirm(`Reload the page to start the VM as ${distroInfo(distro).label || distro} with ${memoryMB} MB?\n\n`
+    if (!confirm(`Reload the page to start the VM as ${distroInfo(distro).label || distro} with ${memoryMB} MB`
+        + `${distroInfo(distro).arch === 'x86' ? `, x86 JIT ${jit ? 'on' : 'off'}` : ''}?\n\n`
         + 'What runs in the VM now stops (press Save state first to come back to it). The workspace, skills and chats '
         + 'are kept.')) return;
-    try { localStorage.setItem(VM_PREFS, JSON.stringify({ ...vmPrefs, distro, memoryMB })); } catch {
+    try { localStorage.setItem(VM_PREFS, JSON.stringify({ ...vmPrefs, distro, memoryMB, jit })); } catch {
         addMessage('problem', 'This browser has no storage for the choice, so it would be lost on the restart.');
         return;
     }
     await liveVM?.flush().catch(() => {});
     const url = new URL(location.href);
-    for (const k of ['distro', 'mem', 'cfg']) url.searchParams.delete(k);
+    for (const k of ['distro', 'mem', 'cfg', 'jit']) url.searchParams.delete(k);
     location.href = url.href;
 };
 
@@ -3465,6 +3491,11 @@ function renderVMStats() {
     row('System', machine.custom ? machine.custom : `${d.label || d.name} (distro/${d.name})`);
     row('Processor', machine.custom ? 'as the config says' : d.arch);
     row('Memory', `${machine.memoryMB} MB`);
+    if (machine.custom || d.arch === 'x86') {
+        const blocks = engine.stats?.jitBlocks;
+        row('x86 JIT', !machine.jit ? 'off' : blocks > 0 ? `on, ${blocks.toLocaleString()} blocks compiled`
+            : blocks < 0 ? 'off: this engine build has none, or the browser refused it' : 'on');
+    }
     row('Running', vmState.how ? `${vmState.how} in ${vmState.seconds} s` : 'starting…');
     row('Saved state', !snapshotFp ? 'off (?nosnapshot=1, or this browser can\'t fingerprint the VM)'
         : vmState.saved ? `${new Date(vmState.saved.at).toLocaleString()}, ${megabytes(vmState.saved.size)}` : 'none yet');
@@ -3975,7 +4006,7 @@ async function startVM() {
     if (!params.has('nosnapshot')) {
         bootStage('checking for a saved state');
         snapshotFp = await snapshotFingerprint({
-            wasmUrl: new URL('./engine/x86emu-wasm.wasm', location.href).href,
+            wasmUrl: new URL('./deps/jsLab/engine/x86emu-wasm.wasm', location.href).href,
             configUrl: new URL(VM_OPTIONS.configUrl, location.href).href,
             options: { ...VM_OPTIONS, volumes: undefined },
         }).catch((e) => { console.warn('snapshot fingerprint', e); return null; });

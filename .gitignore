@@ -1,0 +1,11 @@
+# Build output (scripts/build.mjs --out _site) and downloaded guest images
+/_site/
+/_distros/
+
+# scripts/serve.mjs mirror cache
+/.cache/
+
+node_modules/
+
+# Local tool state
+/.claude/

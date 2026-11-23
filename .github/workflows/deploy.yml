@@ -1,0 +1,111 @@
+# Build the agent and deploy it to GitHub Pages. Run by hand: Actions -> deploy
+# -> Run workflow.
+#
+# The engine comes from deps/TinyEMU (built here with Emscripten) or, to save
+# the build, from a release on TinyEMU's GitHub Pages; the guest images come
+# from a TinyEMU-distros GitHub Release (<name>.tar from one release that holds
+# every distro, made by its release workflow; the latest unless `release` names
+# one). The page boots debian-13-riscv64-lite when it is there, else the first.
+#
+# One-time setup: Settings -> Pages -> Source: "GitHub Actions".
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      engine:
+        description: 'Engine: "source" (build deps/TinyEMU) or a version on TinyEMU Pages ("latest", ...)'
+        required: false
+        default: source
+      distros:
+        description: 'Distros (space-separated; the page boots debian-13-riscv64-lite if listed, else the first)'
+        required: false
+        default: debian-13-riscv64-lite alpine-3.20-riscv64-lite alpine-3.20-x86-lite debian-12-x86-lite
+      release:
+        description: 'TinyEMU-distros release tag to take the distros from (empty: the latest, e.g. distros-20261122-5)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  engine:
+    if: inputs.engine == 'source'
+    runs-on: ubuntu-latest
+    container: emscripten/emsdk:3.1.74
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build the engine
+        run: make -C deps/TinyEMU -f Makefile.js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine
+          path: deps/TinyEMU/dist/wasm/
+
+  deploy:
+    needs: engine
+    if: always() && (needs.engine.result == 'success' || needs.engine.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Engine built from source
+        if: inputs.engine == 'source'
+        uses: actions/download-artifact@v4
+        with:
+          name: engine
+          path: _engine
+      - name: Put the engine into deps/jsLab/engine
+        env:
+          ENGINE: ${{ inputs.engine }}
+        run: |
+          if [ "$ENGINE" = source ]; then
+            node deps/jsLab/scripts/fetch-engine.mjs --from _engine
+            echo "source $(git -C deps/TinyEMU rev-parse --short HEAD)" > deps/jsLab/engine/VERSION
+          else
+            node deps/jsLab/scripts/fetch-engine.mjs "$ENGINE"
+          fi
+      - name: Tests
+        run: node --test "tests/*.test.mjs"
+      - name: Download the distros
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISTROS: ${{ inputs.distros }}
+          RELEASE: ${{ inputs.release }}
+        run: |
+          set -e
+          case "$RELEASE" in -*|*[!A-Za-z0-9._-]*) echo "bad release tag: $RELEASE"; exit 1;; esac
+          args=""
+          for d in $DISTROS; do
+            case "$d" in *[!A-Za-z0-9._-]*) echo "bad distro name: $d"; exit 1;; esac
+            mkdir -p "_distros/$d"
+            # With no tag, gh takes the latest release.
+            gh release download $RELEASE -R GramThanos/TinyEMU-distros -p "$d.tar" -D _distros
+            tar -xf "_distros/$d.tar" -C "_distros/$d"
+            rm "_distros/$d.tar"
+            args="$args --distro _distros/$d"
+          done
+          echo "DISTRO_ARGS=$args" >> "$GITHUB_ENV"
+      - name: Build the site
+        run: node scripts/build.mjs $DISTRO_ARGS --out _site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

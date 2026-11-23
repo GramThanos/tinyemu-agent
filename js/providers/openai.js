@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * openai.js — any OpenAI-compatible chat completions API: OpenAI itself, Gemini's
  * compatibility endpoint, OpenRouter, or a server of your own (llama.cpp, Ollama,

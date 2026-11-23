@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * tools.js — the tools the model can call: Read, Edit, Write, Glob, Grep, Bash,
  * `skill` while the user has imported skills (see skills.js), Delegate (a
@@ -125,7 +126,7 @@ export function movedNote(to, shell = null) {
         : `The working directory is now ${to}: later Bash commands, and relative paths in Read, Edit, Write, Glob and Grep, start there.`;
 }
 
-/* What bash.js runs besides its builtins (vendor/bash.js, Settings → Features). */
+/* What bash.js runs besides its builtins (deps/bash.js, Settings → Features). */
 export const BASHJS_UTILITIES = 'cat, ls, mkdir, rm, mv, dirname, head, tail, wc, nl, sort, uniq, cut, grep, rg, find, sed, awk, diff, patch, date, echo, printf';
 
 /** The Bash tool as it runs in bash.js, in the page, instead of in the VM. */

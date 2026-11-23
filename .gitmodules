@@ -1,0 +1,12 @@
+[submodule "deps/jsLab"]
+	path = deps/jsLab
+	url = https://github.com/GramThanos/jsLab.git
+[submodule "deps/bash.js"]
+	path = deps/bash.js
+	url = https://github.com/GramThanos/bash.js.git
+[submodule "deps/TinyEMU"]
+	path = deps/TinyEMU
+	url = https://github.com/GramThanos/TinyEMU.git
+[submodule "deps/TinyEMU-distros"]
+	path = deps/TinyEMU-distros
+	url = https://github.com/GramThanos/TinyEMU-distros.git

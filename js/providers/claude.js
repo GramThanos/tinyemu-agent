@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * claude.js — Claude over the Anthropic API, called directly from the page with
  * the user's own key. The key stays in this page's memory: it is never stored, and

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * FileBrowser.js — browse one of the VM's JS volumes (the agent's /workspace)
  * from the page: open folders, preview text files, download (folders as .zip),

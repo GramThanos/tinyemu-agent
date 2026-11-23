@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * figures.js — what the page's Context and Usage panels show, worked out from an
  * agent's state and a chat's counters. No DOM here, so the tests can check it.

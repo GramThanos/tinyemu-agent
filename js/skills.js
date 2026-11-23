@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * skills.js — skills: folders of instructions, each with a SKILL.md, that the user
  * imports and the model loads on demand.
@@ -162,7 +163,7 @@ export class SkillLibrary {
     /** Read the skills saved in this browser, without a VM. */
     async loadSaved() {
         try {
-            const { Fs9pStore } = await import('../engine/volumes/Fs9pStore.js');
+            const { Fs9pStore } = await import('../deps/jsLab/lib/volumes/Fs9pStore.js');
             this._store = await Fs9pStore.fromSpec({ name: SKILLS_VOLUME, backend: 'indexeddb', storageKey: SKILLS_STORAGE_KEY });
             // Only read from here on; the VM's worker owns writing the volume.
             await this._store.backend.close();

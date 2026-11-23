@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * LinkedFolders.js — folders on the user's computer linked into the workspace.
  *

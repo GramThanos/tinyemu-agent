@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * chats.js — the page's chats, kept in this browser (IndexedDB), so a reload
  * brings them back and the page can hold several, one per tab.

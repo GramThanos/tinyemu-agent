@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * toolProtocol.js — tool calling for models with no native tool API: tools are
  * described in the system prompt and calls are written as tagged JSON in the text.

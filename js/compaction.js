@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * compaction.js — shrinking a conversation that is filling the model's context.
  *

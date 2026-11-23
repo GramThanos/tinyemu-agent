@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * keepAwake.js — keep the computer and the browser from stopping the page while
  * the agent works.

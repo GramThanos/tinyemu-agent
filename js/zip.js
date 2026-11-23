@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * zip.js — build a .zip archive in memory, for downloading workspace folders.
  *

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /*
  * webllm.js — a model that runs entirely in the browser on WebGPU (WebLLM). No key
  * and no server; the weights download once and are cached by the browser.
