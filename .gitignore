@@ -1,9 +1,5 @@
-# Build output (scripts/build.mjs --out _site) and downloaded guest images
+# Build output (scripts/build.mjs --out _site)
 /_site/
-/_distros/
-
-# scripts/serve.mjs mirror cache
-/.cache/
 
 node_modules/
 

@@ -35,7 +35,8 @@ import {
     expandSkillMentions, groupSkillFiles, parseFrontmatter, parseSkillFile, SkillLibrary, SKILL_TOOL, SKILLS_VOLUME,
 } from '../js/skills.js';
 import { Fs9pStore } from '../deps/jsLab/lib/volumes/Fs9pStore.js';
-import { distroEntry, guestConfigText } from '../scripts/guest-config.mjs';
+import { agentConfig, distroLabel, parseManifest } from '../js/distros.js';
+import { parseConfig, resolveConfigFiles, stringifyConfig } from '../deps/jsLab/lib/vm/TinyemuConfig.js';
 import { compactedMessage, isContextOverflow, renderTranscript } from '../js/compaction.js';
 import { ClaudeProvider } from '../js/providers/claude.js';
 
@@ -1195,42 +1196,61 @@ await test('tools sync before and after VM calls only', async () => {
 
 /* ---- guest config ------------------------------------------------------------ */
 
-await test('guest.cfg names files relative to itself, drops the network and adds the JS volumes', () => {
-    // As TinyEMU-distros' scripts/mkconfig.py writes it.
-    const distroCfg = `/* alpine-3.20-x86 — GENERATED from recipe.yml by scripts/mkconfig.py.
- * \${ASSET_BASE} is where the kernel + blk chunk files are hosted. */
+await test('agentConfig drops the network and adds the JS volumes to a published distro', () => {
+    // As TinyEMU-distros' Pages serves it: ${ASSET_BASE} already filled in.
+    const base = 'https://example.github.io/TinyEMU-distros/debian-13-riscv64-lite';
+    const text = `/* debian-13-riscv64-lite */
 {
     version: 1,
-    machine: "pc",
-    memory_size: 128,
-    kernel: "\${ASSET_BASE}/kernel.bin",
-    cmdline: "loglevel=1 console=hvc0 root=/dev/vda rw init=/bin/sh",
-    drive0: { file: "\${ASSET_BASE}/blk.txt" },
+    machine: "riscv64",
+    memory_size: 256,
+    bios: "${base}/bios.bin",
+    kernel: "${base}/kernel.bin",
+    cmdline: "console=hvc0 root=/dev/vda rw init=/bin/sh",
+    drive0: { file: "${base}/blk.txt" },
     eth0: { driver: "user" },
 }
 `;
-    const cfg = guestConfigText(distroCfg);
-    assert.match(cfg, /kernel: "kernel\.bin"/);
-    assert.match(cfg, /drive0: \{ file: "blk\.txt" \}/);
-    assert.equal(cfg.includes('${ASSET_BASE}'), false);
-    assert.equal(/eth\d+\s*:/.test(cfg), false);
-    assert.match(cfg, /fs0: \{ file: "js:agent", tag: "agent" \},\n {4}fs1: \{ file: "js:workspace", tag: "workspace" \},\n {4}fs2: \{ file: "js:skills", tag: "skills" \},\n\}\n$/);
-    // A distro that uses a 9p slot itself keeps it, and its last entry needs a comma.
-    assert.match(guestConfigText('{\n    fs0: { file: "root" }\n}', ['a']), /fs0: \{ file: "root" \},\n {4}fs1: \{ file: "js:a", tag: "a" \},/);
+    const cfg = resolveConfigFiles(parseConfig(text), `${base}/config.cfg`);
+    agentConfig()(cfg);
+    assert.equal(cfg.eth0, undefined);
+    assert.equal(cfg.kernel, `${base}/kernel.bin`);
+    assert.equal(cfg.drive0.file, `${base}/blk.txt`);
+    assert.deepEqual([cfg.fs0, cfg.fs1, cfg.fs2], [
+        { file: 'js:agent', tag: 'agent' }, { file: 'js:workspace', tag: 'workspace' }, { file: 'js:skills', tag: 'skills' },
+    ]);
+    // It still reads as a config.
+    assert.deepEqual(parseConfig(stringifyConfig(cfg)).fs2, { file: 'js:skills', tag: 'skills' });
 });
 
-await test('guestConfigText names a published copy\'s files relative to the config', () => {
-    const base = 'https://example.github.io/TinyEMU-distros/debian-13-riscv64-lite';
-    const published = `{\n    kernel: "${base}/kernel.bin",\n    bios: "${base}/bios.bin",\n    drive0: { file: "${base}/blk.txt" },\n    drive1: { file: "${base}/sub/x.bin" },\n    drive2: { file: "https://other.example/blk.txt" },\n}\n`;
-    const cfg = guestConfigText(published, ['a'], { base: `${base}/` });
-    assert.match(cfg, /kernel: "kernel\.bin"/);
-    assert.match(cfg, /bios: "bios\.bin"/);
-    assert.match(cfg, /drive0: \{ file: "blk\.txt" \}/);
-    // Deeper paths and other hosts stay as they were.
-    assert.ok(cfg.includes(`"${base}/sub/x.bin"`));
-    assert.ok(cfg.includes('"https://other.example/blk.txt"'));
-    // Without base, a published config is left alone.
-    assert.ok(guestConfigText(published, ['a']).includes(`"${base}/kernel.bin"`));
+await test('agentConfig keeps a distro\'s own 9p slot and places an unfilled ${ASSET_BASE}', () => {
+    // A local build, served as unpacked: config.cfg still says ${ASSET_BASE}.
+    const text = '{\n    machine: "pc",\n    kernel: "${ASSET_BASE}/kernel.bin",\n    drive0: { file: "${ASSET_BASE}/blk.txt" },\n'
+        + '    fs0: { file: "root" },\n    eth1: { driver: "user" },\n}\n';
+    const cfg = resolveConfigFiles(parseConfig(text), 'http://127.0.0.1:8000/distro/x/config.cfg');
+    agentConfig(['a', 'b'])(cfg);
+    assert.equal(cfg.kernel, 'http://127.0.0.1:8000/distro/x/kernel.bin');
+    assert.equal(cfg.drive0.file, 'http://127.0.0.1:8000/distro/x/blk.txt');
+    assert.equal(cfg.fs0.file, 'http://127.0.0.1:8000/distro/x/root');
+    assert.deepEqual([cfg.fs1, cfg.fs2], [{ file: 'js:a', tag: 'a' }, { file: 'js:b', tag: 'b' }]);
+    assert.equal(cfg.eth1, undefined);
+});
+
+await test('parseManifest lists the distros with absolute configs', () => {
+    const url = 'https://example.github.io/TinyEMU-distros/manifest.json';
+    const list = parseManifest({ distros: [
+        { name: 'debian-13-riscv64-lite', arch: 'riscv64', description: 'lite', config: 'debian-13-riscv64-lite/config.cfg' },
+        { name: 'alpine-3.20-x86', arch: 'x86', url: 'https://example.github.io/TinyEMU-distros/alpine-3.20-x86/config.cfg' },
+        { name: '../etc', arch: 'x86' },
+        { name: 'bad-scheme', url: 'javascript:alert(1)' },
+        null,
+    ] }, url);
+    assert.deepEqual(list.map((d) => d.name), ['debian-13-riscv64-lite', 'alpine-3.20-x86']);
+    assert.deepEqual(list[0], {
+        name: 'debian-13-riscv64-lite', label: 'Debian 13 lite (riscv64)', arch: 'riscv64', description: 'lite',
+        config: 'https://example.github.io/TinyEMU-distros/debian-13-riscv64-lite/config.cfg',
+    });
+    assert.deepEqual(parseManifest(null, url), []);
 });
 
 /* ---- context compaction ------------------------------------------------------ */
@@ -2412,10 +2432,10 @@ await test('the Bash tool goes to bash.js when the setting is on, and tells the 
     assert.match(r.content, /^\[The working directory is now \/workspace\/d: /);
 });
 
-await test('distroEntry names a distro and its processor', () => {
-    assert.deepEqual(distroEntry('alpine-3.20-x86', '{\n    machine: "pc",\n}'), { name: 'alpine-3.20-x86', label: 'Alpine 3.20 (x86)', arch: 'x86' });
-    assert.equal(distroEntry('debian-12-riscv64', 'machine: "riscv64",').arch, 'riscv64');
-    assert.equal(distroEntry('debian-13-riscv64-lite', 'machine: "riscv64",').label, 'Debian 13 lite (riscv64)');
+await test('distroLabel names a distro and its processor', () => {
+    assert.equal(distroLabel('alpine-3.20-x86', 'x86'), 'Alpine 3.20 (x86)');
+    assert.equal(distroLabel('debian-13-riscv64-lite', 'riscv64'), 'Debian 13 lite (riscv64)');
+    assert.equal(distroLabel('x86', 'x86'), 'x86');
 });
 
 rmSync(base, { recursive: true, force: true });

@@ -37,24 +37,22 @@ engine the page runs) and [TinyEMU-distros](https://github.com/gramthanos/TinyEM
 You need:
 - Node.js 22 or later;
 - the submodules (`git submodule update --init`);
-- a [TinyEMU-distros](https://github.com/gramthanos/TinyEMU-distros) image: a local
-  `build/<name>/` directory, a `<name>.tar` from its Releases unpacked into one, or
-  the URL of a published copy (its Pages, `https://gramthanos.github.io/TinyEMU-distros/<name>`).
-  Take a `-lite` image: it boots straight to a root shell (`init=/bin/sh`), quickly.
-  The full ones (OpenRC, a login on the console) work too, but take longer to start;
 - a current browser: Chrome 95+, Safari 15.4+ or Firefox 131+, for WebAssembly
   exception handling;
-- the engine in `deps/jsLab/engine/` (see [The engine](#the-engine)):
+- a connection to GitHub Pages: the page loads the emulator from
+  [TinyEMU's Pages](https://gramthanos.github.io/TinyEMU/) and the systems from
+  [TinyEMU-distros' Pages](https://gramthanos.github.io/TinyEMU-distros/). Nothing
+  needs downloading first.
 
 ```bash
-node deps/jsLab/scripts/fetch-engine.mjs        # the latest release from TinyEMU's Pages
-node scripts/serve.mjs --distro https://gramthanos.github.io/TinyEMU-distros/debian-13-riscv64-lite
+node scripts/serve.mjs
 ```
 
-Then open <http://localhost:8000/>. The VM starts booting at once. Give
-`--distro` more than once to offer several systems in the [VM tab](#machines); the
-first is listed first. The page boots `debian-13-riscv64-lite` when it is offered,
-and the first otherwise.
+Then open <http://localhost:8000/>. The VM starts booting at once, as Debian 13
+RISC-V lite (`debian-13-riscv64-lite`); the [VM tab](#machines) offers every system
+TinyEMU-distros publishes. The `-lite` ones boot straight to a root shell
+(`init=/bin/sh`), quickly; the full ones (an init system, a login on the console)
+work too, but take longer to start.
 
 1. Pick a **provider** and paste its API key, or choose **In this browser** for a
    local model that needs no key.
@@ -383,15 +381,16 @@ A change to the skills applies from your next message, in the same conversation.
 
 ### Machines
 
-The **VM** tab picks the system the VM runs: **System** lists the distros the server
-offers (`distro/index.json`, which `scripts/serve.mjs` and `scripts/build.mjs` write), with
+The **VM** tab picks the system the VM runs: **System** lists the systems
+[TinyEMU-distros](https://gramthanos.github.io/TinyEMU-distros/) publishes (its
+`manifest.json`, read at each load; when it can't be read, only the default is offered), with
 their processor, **Memory** 128, 256 (the default) or 512 MB, and **x86 JIT** (on
 by default; x86 systems only), which compiles hot guest code to WebAssembly. Turning
 it off runs the interpreter alone, a way to rule the JIT out of a problem. A system for a
 processor this page's engine can't run is listed but can't be picked (the engine
 runs x86, riscv32 and riscv64). **Restart with these** keeps the choice in this browser and reloads the page
 to boot it; the chats stay (see [Using the page](#using-the-page)). `?distro=`, `?mem=`, `?cfg=` and `?jit=` in the link override
-the choice for that load. The tab also shows what is running, how it started and its
+the choice for that load. The tab also shows the engine release, what is running, how it started and its
 saved state, and, while the tab is open (sampled every 2 s):
 - **Speed:** instructions per second the emulated CPU runs now, and on average while
   tool calls ran in the VM;
@@ -475,8 +474,9 @@ The page appends these to an x86 distro's own (a RISC-V distro gets only
 |-----------|--------|
 | `?nosnapshot=1` | Don't resume or save the VM state |
 | `?mem=<MB>` | Guest memory, instead of the VM tab's choice (default 256) |
-| `?distro=<name>` | Boot `distro/<name>/guest.cfg` instead of the VM tab's choice (default `debian-13-riscv64-lite`) |
-| `?cfg=<url>` | Boot any TinyEMU config instead of the distro's `guest.cfg` |
+| `?distro=<name>` | Boot that TinyEMU-distros system instead of the VM tab's choice (default `debian-13-riscv64-lite`) |
+| `?cfg=<url>` | Boot any TinyEMU config instead (relative URLs are to the page). The page changes it the way it changes a distro's: no network devices, and the three JS volumes added |
+| `?engine=<release or folder>` | Use another TinyEMU engine release from its Pages (`v2026-11-22`, `latest`), or a folder on the page's own server holding `x86emu-wasm.js` and `.wasm` (a local build). Part of the saved state's fingerprint |
 | `?jittail=1` | x86 guests: chain the JIT's compiled pages with WebAssembly tail calls instead of through C. Slower in tests (Chrome 156), so off; for comparing as browsers change. Part of the saved state's fingerprint |
 | `?jit=0` / `?jit=1` | x86 guests: turn the engine's x86-to-WebAssembly JIT off or on, instead of the VM tab's choice (default on). Against the interpreter alone it boots Alpine x86 in ~10 s instead of ~16, and, once warm, runs a shell loop and Python about twice as fast. It is part of the saved state's fingerprint, so switching it cold-boots |
 | `?baseURL=<url>` | Send Claude requests to a local proxy or test server (localhost only) |
@@ -690,31 +690,24 @@ calls change directory, the last to finish wins.
 `scripts/serve.mjs` is a small static server with no dependencies:
 
 ```
-node scripts/serve.mjs --distro <build dir or URL> [--distro ...] [--name <name>] [--host <addr>] [port]
+node scripts/serve.mjs [--distro <build dir>] [--distro ...] [--host <addr>] [port]
 ```
 
 | Option | Default | Meaning |
 |--------|---------|---------|
-| `--distro` | `AGENT_DISTRO` | A TinyEMU-distros `build/<name>/` directory, or the URL of a published copy |
-| `--name` | the directory's name | The name the page asks for (`?distro=`; the page's default is `debian-13-riscv64-lite`) |
+| `--distro` | none | A local TinyEMU-distros `build/<name>/` directory (or a `<name>.tar` from its Releases, unpacked), to try a system before it is published |
 | `--host` | `HOST`, else `127.0.0.1` | Address to listen on; `0.0.0.0` opens it to your network |
 | port | `PORT`, else `8000` | Port to listen on |
 
-It serves:
-- this repository, so the page is at `/` and loads jsLab, bash.js and the engine
-  from `deps/`;
-- the distro at `/distro/<name>/`, where the built site has it too. A URL distro is
-  downloaded once into `.cache/`, kernel and disk included, so its host needs no
-  CORS headers;
-- `/distro/<name>/guest.cfg`, the config the page boots: the distro's
-  `config.cfg` with three changes. The kernel and disk are named relative to it (so
-  the same page works from any host and path; a published copy names them by its
-  own URL, which is taken off too), network devices are removed, and
-  three JS volumes are added: `agent` (the tools' bridge), `workspace` and `skills`.
-  The engine takes at most four, so the distro's config can use one more.
+It serves this repository, so the page is at `/` and loads jsLab and bash.js from
+`deps/`. The engine and the systems don't come from it: the page loads them from
+TinyEMU's and TinyEMU-distros' Pages. A `--distro` directory is served at
+`/distro/<name>/`; boot it with `?cfg=distro/<name>/config.cfg` (it prints the link).
+Its `config.cfg` still says `${ASSET_BASE}` where the published copy has its URL;
+the page reads that as the config's own folder.
 
-Files are sent with `Cache-Control: no-store`, so a rebuilt engine or edited page is
-never served stale, and with `Last-Modified`, which tells a saved VM state that the
+Files are sent with `Cache-Control: no-store`, so an edited page is never served
+stale, and with `Last-Modified`, which tells a saved VM state that a local distro's
 kernel or disk changed.
 
 **Using it from another computer:** start it with `--host 0.0.0.0` and it prints the
@@ -729,73 +722,59 @@ provides. It must boot to a shell prompt on the console.
 
 ## Publishing
 
-`scripts/build.mjs` assembles the site, a static site with the engine and the
-distros, into a directory (`_site/`, git-ignored):
+`scripts/build.mjs` assembles the site into a directory (`_site/`, git-ignored):
 
 ```bash
-node scripts/build.mjs --distro <TinyEMU-distros build/<name> directory> [--distro ...] --out _site
+node scripts/build.mjs --out _site
 ```
 
-**The `deploy` workflow** does this on GitHub and publishes the result to Pages. Run
-it by hand (Actions → deploy → Run workflow); its inputs are the engine (`source`
-builds `deps/TinyEMU` with Emscripten, or a version from TinyEMU's Pages such as
-`latest`), the distros (by default the four `-lite` ones, `debian-13-riscv64-lite` first), and
-the TinyEMU-distros release to take them from (made by that repository's `release`
-workflow, one release with every distro; empty means the latest). Pages must be
-set to deploy from GitHub Actions (Settings → Pages → Source).
+**The `deploy` workflow** does this on GitHub, after the tests, and publishes the
+result to Pages. Run it by hand (Actions → deploy → Run workflow); it has no inputs.
+Pages must be set to deploy from GitHub Actions (Settings → Pages → Source).
 
 It writes:
 - `index.html` and `js/`, from here;
 - `engine/`, the files of jsLab (`deps/jsLab/lib/`) that the page loads (followed
-  from its imports, so nothing is listed by hand), and the engine from
-  `deps/jsLab/engine/`;
-- `vendor/bash.js`, from `deps/bash.js`. These two keep the layout the site had
-  before the submodules, so saved VM states stay valid;
-- `distro/<name>/`: `config.cfg`, `kernel.bin` (and `bios.bin` for RISC-V), `blk.txt`
-  and the chunks (raw `blk*.bin` or gzipped `blk*.bin.gz`, as `blk.txt` says), plus the
-  generated `guest.cfg`. `rootfs.ext2` is left out, since the chunks are the same disk;
-- `README.md` (from `scripts/release-README.md`), `LICENSE`, `LICENSES/` (jsLab's,
-  bash.js's and TinyEMU's), `.nojekyll` (no Jekyll on Pages), and `build-info.json`:
-  the commit it came from (and whether it had uncommitted changes), the submodules'
-  commits, the engine's version and hash, and the distros.
+  from its imports, so nothing is listed by hand);
+- `vendor/bash.js`, from `deps/bash.js`;
+- `README.md` (from `scripts/release-README.md`), `LICENSE`, `LICENSES/` (jsLab's
+  and bash.js's), `.nojekyll` (no Jekyll on Pages), and `build-info.json`: the commit
+  it came from (and whether it had uncommitted changes), the submodules' commits, the
+  engine release and where the systems come from.
 
 Relative paths in the code are rewritten for the release's layout, and the output's
 imports are checked again. The output directory is emptied first, except `.git` and
 `CNAME`; to guard against a typo it must be empty, a git checkout or an earlier build.
 
-**On GitHub Pages**, the four default distros come to about 180 MB of images
-(TinyEMU-distros' `distros-20261122-5` release), within Pages' limits (1 GB site,
-100 MB per file). Pages lets browsers cache files for 10 minutes and its headers
-can't be changed: right after a release, a browser can mix old and new files and fail
-with `vm_start failed: Aborted()`, which a hard reload fixes. Saved VM states are
-matched by each file's ETag there, so a release that changes the engine, kernel or
-disk makes the next load boot from scratch, and one that doesn't keeps them.
+**Nothing big is published:** the site is under 1 MB. A new TinyEMU-distros release
+reaches the page with no deploy here; so does a new system in it. A new engine
+release needs `ENGINE` in `js/distros.js` changed, since saved VM states only resume
+on the engine they were saved with. Pages lets browsers cache files for 10 minutes
+and its headers can't be changed: right after a release, a browser can mix old and
+new files and fail with `vm_start failed: Aborted()`, which a hard reload fixes.
+Saved VM states are matched by each file's ETag there, so a release that changes the
+kernel or disk makes the next load boot from scratch, and one that doesn't keeps them.
 
 **Licences:** the agent is GPL-3.0-or-later, as is jsLab; the engine (TinyEMU) and
-bash.js are MIT. A distro is none of these: the Linux kernel and
-BusyBox are GPL-2.0 and Alpine's packages carry their own licences, so publishing one
-comes with their terms. The release README says so and points at the
-TinyEMU-distros recipe.
+bash.js are MIT. The systems are none of these: the Linux kernel and BusyBox are
+GPL-2.0 and the distributions' packages carry their own licences. They are
+published by TinyEMU-distros, whose recipes record what went into each.
 
 ### The engine
 
-The page uses `deps/jsLab/engine/x86emu-wasm.js` and `.wasm`, TinyEMU's WebAssembly
-build. `deps/jsLab/scripts/fetch-engine.mjs [version]` downloads a release from
-TinyEMU's GitHub Pages (checked against its `SHA256SUMS`). To build it from the
+The page uses TinyEMU's WebAssembly build, `x86emu-wasm.js` and `.wasm`, from
+`https://gramthanos.github.io/TinyEMU/engine/<release>/`: the release `ENGINE` in
+`js/distros.js` names (v2026-11-23 or later: it boots a `data:` config, which is
+how the page's changes to a distro's config reach it). To try a build of the
 `deps/TinyEMU` submodule instead, with Docker:
 
 ```bash
 docker run --rm -v "$PWD/deps/TinyEMU":/src -w /src emscripten/emsdk:3.1.74 make -f Makefile.js
-node deps/jsLab/scripts/fetch-engine.mjs --from deps/TinyEMU/dist/wasm
 ```
 
-On Windows Git Bash, use `MSYS_NO_PATHCONV=1` and `"$(pwd -W)"` in place of `"$PWD"`.
-A new engine invalidates saved VM states, so the next load boots from scratch.
-
-The page needs an engine that resolves a drive's path relative to its config file,
-as it does the kernel's (`init_vm_drive_next` in `jsemu.c`): `guest.cfg` names the
-disk relatively. An older build fetches it relative to the worker script, and the
-boot aborts.
+then open the page with `?engine=deps/TinyEMU/dist/wasm/`. On Windows Git Bash, use
+`MSYS_NO_PATHCONV=1` and `"$(pwd -W)"` in place of `"$PWD"`. A new engine
+invalidates saved VM states, so the next load boots from scratch.
 
 ## What the browser keeps
 
@@ -869,7 +848,7 @@ the agent loop and provider interface.
 node tests/tools.test.mjs
 ```
 
-The 114 tests cover:
+The 115 tests cover:
 - the tools' real shell scripts, run with a local `sh` (Git Bash works on Windows)
   against a temp folder;
 - the agent loop: parallel calls, call order, Stop, and waiting for a booting VM;
@@ -886,7 +865,8 @@ The 114 tests cover:
   waiting out a lost connection (its 5/10/20 s schedule, Stop, sub-agents);
 - linked folders, against an in-memory stand-in for the browser's folder handles:
   linking, syncing both ways, conflicts, deletions, unlinking, reloads and the size cap;
-- the `guest.cfg` made from a distro's `config.cfg`;
+- the list of systems read from TinyEMU-distros' manifest, and the changes the page
+  makes to a system's config (no network, the JS volumes);
 - context compaction: the transcript, overflow errors, automatic compaction before a
   message and between steps, the retry after a too-long error, failures and the off
   switch, the threshold, manual compaction, each provider's transcript and reset, and
@@ -914,19 +894,22 @@ They don't boot a VM or call a real model.
 - **The VM always boots from scratch.** Saving needs IndexedDB, which a private window
   or blocked site data can prevent. `?nosnapshot=1` also turns it off.
 - **Something looks stuck after resuming.** Press **Fresh boot**.
+- **The VM tab says it could not read the list of systems,** or the boot fails at
+  once. The page couldn't reach GitHub Pages (`gramthanos.github.io`), where the
+  engine and the systems are; check your connection, or what blocks that site.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
 | [index.html](index.html) | The page: layout, chat, model picker, VM startup and saved state |
-| [scripts/serve.mjs](scripts/serve.mjs) | The dev server: this repository, the distro and its `guest.cfg` |
-| [scripts/build.mjs](scripts/build.mjs) | Builds the site: the page, the engine, jsLab, bash.js and the distros |
+| [scripts/serve.mjs](scripts/serve.mjs) | The dev server: this repository, and local distro builds |
+| [scripts/build.mjs](scripts/build.mjs) | Builds the site: the page, jsLab and bash.js |
 | [scripts/add-submodules.sh](scripts/add-submodules.sh) | Registers the `deps/` submodules (once) |
 | [.github/workflows/deploy.yml](.github/workflows/deploy.yml) | Builds the site and deploys it to GitHub Pages (run by hand) |
-| [scripts/guest-config.mjs](scripts/guest-config.mjs) | How `guest.cfg` is made from a distro's `config.cfg` |
 | [scripts/release-README.md](scripts/release-README.md) | The README a release gets |
 | [js/Agent.js](js/Agent.js) | The agent loop, the system prompts, the provider interface, Delegate's sub-agents and when to compact |
+| [js/distros.js](js/distros.js) | Where the systems and the engine come from, and the config the page boots a system with |
 | [js/compaction.js](js/compaction.js) | Compaction: the summary prompt, the transcript, overflow errors |
 | [js/pause.js](js/pause.js) | Noticing when the browser paused the page, for timeouts |
 | [js/keepAwake.js](js/keepAwake.js) | The wake lock and the quiet tone that keep the page running during a turn |

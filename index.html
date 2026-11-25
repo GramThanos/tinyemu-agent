@@ -528,7 +528,8 @@
 </main>
 
 <script type="module">
-import { SnapshotStore, snapshotFingerprint, VMManager } from './deps/jsLab/lib/vm/index.js';
+import { engineUrls, SnapshotStore, snapshotFingerprint, VMManager } from './deps/jsLab/lib/vm/index.js';
+import { agentConfig, DISTROS_PAGES, distroLabel, ENGINE, parseManifest } from './js/distros.js';
 import { GuestBridge, VOLUME, WORKSPACE, WORKSPACE_VOLUME } from './js/GuestBridge.js';
 import { asText, FileBrowser, formatSize, readEntry } from './js/FileBrowser.js';
 import { ChatStore, MAX_EXCHANGES, MemoryChatStore, newChat, pickChat, titleFrom } from './js/chats.js';
@@ -1234,7 +1235,7 @@ function numberSetting(input, key, onChange) {
  * edit, or the built-in one. */
 const systemTemplate = () => settings.systemPrompt || SYSTEM_PROMPT;
 /* {{VAR_ARCH}} / {{VAR_OS_NAME}}: from the VM tab's machine. A ?cfg= machine
- * isn't in distro/index.json, so it only gets a generic description. */
+ * isn't in TinyEMU-distros' manifest, so it only gets a generic description. */
 function promptVars() {
     // Until startVM picks the machine (or before its `let` runs at load), and
     // for a ?cfg= machine, there is nothing better to say. The Agent re-reads
@@ -3261,10 +3262,10 @@ let liveVM = null;
 
 /* The machine: which distro (its disk and processor) and how much memory. The VM
  * tab picks them and keeps the choice in this browser; ?distro=, ?mem= and ?cfg=
- * override it for one load. A distro name that isn't a plain folder name is
- * ignored, so a link can't point outside distro/. distro/index.json
- * (scripts/serve.mjs, scripts/build.mjs) lists the distros; without it only the
- * default is offered. */
+ * override it for one load. The distros are TinyEMU-distros' (js/distros.js),
+ * listed by its Pages' manifest.json; without it only the default is offered. A
+ * distro name that isn't a plain folder name is ignored, so a link can't point
+ * outside those Pages (?cfg= is the way to boot any other config). */
 const DEFAULT_DISTRO = 'debian-13-riscv64-lite';
 const DISTRO_NAME = /^[\w-][\w.-]*$/;
 const MEMORY_SIZES = [128, 256, 512];
@@ -3276,16 +3277,24 @@ const vmPrefs = (() => {
     try { const p = JSON.parse(localStorage.getItem(VM_PREFS)); return p && typeof p === 'object' ? p : {}; } catch { return {}; }
 })();
 
-let distroList = [];   // [{ name, label, arch }]
+let distroList = [];   // [{ name, label, arch, description, config }]
+let distroProblem = null;   // why the list couldn't be read, for the VM tab
 async function loadDistros() {
+    const url = new URL('manifest.json', DISTROS_PAGES).href;
     try {
-        const r = await fetch('distro/index.json', { cache: 'no-store' });
-        if (!r.ok) return;
-        const list = (await r.json())?.distros;
-        if (Array.isArray(list)) distroList = list.filter((d) => d && typeof d.name === 'string' && DISTRO_NAME.test(d.name));
-    } catch { /* an older server or release: just the default */ }
+        const r = await fetch(url, { cache: 'no-cache' });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        distroList = parseManifest(await r.json(), url);
+    } catch (e) { distroProblem = `${url}: ${e.message}`; }
 }
-const distroInfo = (name) => distroList.find((d) => d.name === name) || { name, label: name, arch: 'x86' };
+// One not in the list (offline, or a ?distro= it lacks) is still looked for there.
+const distroInfo = (name) => distroList.find((d) => d.name === name) || {
+    name,
+    label: name === DEFAULT_DISTRO ? distroLabel(name, 'riscv64') : name,
+    arch: /riscv64/.test(name) ? 'riscv64' : /riscv32/.test(name) ? 'riscv32' : 'x86',
+    description: '',
+    config: new URL(`${name}/config.cfg`, DISTROS_PAGES).href,
+};
 const runnable = (d) => ENGINE_ARCHES.includes(d.arch);
 
 function chooseMachine() {
@@ -3378,12 +3387,24 @@ function watchEngine(on) {
 const snapshotKey = () => (machine.custom ? 'tinyemu-agent-vm:custom'
     : machine.distro === 'alpine-3.20-x86' ? 'tinyemu-agent-vm' : `tinyemu-agent-vm:${machine.distro}`);
 
+/* The engine: ENGINE, or ?engine= naming another release on TinyEMU's Pages, or
+ * a folder on this page's own origin (a local build: ?engine=deps/TinyEMU/dist/wasm/).
+ * Nothing else, so a link can't make the page run code from anywhere else. */
+const engineRelease = () => {
+    const e = params.get('engine') || '';
+    if (/^[\w.-]+$/.test(e)) return e;
+    try {
+        const u = new URL(e.endsWith('/') ? e : `${e}/`, location.href);
+        if (e && u.origin === location.origin) return u.href;
+    } catch { /* not a URL */ }
+    return ENGINE;
+};
+
 const vmOptions = ({ distro, memoryMB, jit, custom }) => ({
-    // A distro's guest.cfg names its kernel and disk relative to itself, so the
-    // page works from any static host and path. scripts/serve.mjs generates it; a
-    // release build (scripts/build.mjs) writes it next to the distro. ?cfg= boots
-    // any config.
-    configUrl: custom || `distro/${distro}/guest.cfg`,
+    // The distro's own config.cfg on TinyEMU-distros' Pages (?cfg=: any config),
+    // changed on the page for the agent (agentConfig: no network, the JS volumes).
+    configUrl: custom ? new URL(custom, location.href).href : distroInfo(distro).config,
+    configOverride: agentConfig(),
     mode: 'worker',
     memoryMB,
     cmdline: (custom || distroInfo(distro).arch === 'x86' ? [
@@ -3430,6 +3451,7 @@ function fillVMTab() {
     for (const d of list) {
         const o = new Option(runnable(d) ? d.label || d.name : `${d.label || d.name}: needs the ${d.arch} engine, not in this build`, d.name);
         o.disabled = !runnable(d);
+        if (d.description) o.title = d.description;
         sel.append(o);
     }
     if (machine.custom) sel.prepend(new Option(`the config in the link (${machine.custom})`, ''));
@@ -3439,9 +3461,10 @@ function fillVMTab() {
     mem.value = String(machine.memoryMB);
     $('vmJit').checked = machine.jit;
     const overridden = ['distro', 'mem', 'cfg', 'jit'].filter((k) => params.has(k));
-    $('vmConfigNote').textContent = overridden.length
-        ? `This page's link sets ${overridden.map((k) => `?${k}=`).join(', ')}; restarting from here drops it and uses what you pick.`
-        : '';
+    $('vmConfigNote').textContent = [
+        overridden.length ? `This page's link sets ${overridden.map((k) => `?${k}=`).join(', ')}; restarting from here drops it and uses what you pick.` : '',
+        distroProblem ? `Could not read the list of systems (${distroProblem}), so only this one is offered.` : '',
+    ].filter(Boolean).join(' ');
     vmChoiceChanged();
 }
 function vmChoiceChanged() {
@@ -3488,7 +3511,8 @@ function renderVMStats() {
     };
     if (!machine) return;
     const d = distroInfo(machine.distro);
-    row('System', machine.custom ? machine.custom : `${d.label || d.name} (distro/${d.name})`);
+    row('System', machine.custom ? machine.custom : d.description || d.label || d.name);
+    row('Engine', `TinyEMU ${engineRelease()}`);
     row('Processor', machine.custom ? 'as the config says' : d.arch);
     row('Memory', `${machine.memoryMB} MB`);
     if (machine.custom || d.arch === 'x86') {
@@ -3995,7 +4019,7 @@ async function saveState({ auto = false } = {}) {
 async function startVM() {
     boot.timer = setInterval(showBoot, 1000);
     showBoot();
-    const mgr = new VMManager({ network: { subnet: '10.0.2.0/24' } });
+    const mgr = new VMManager({ network: { subnet: '10.0.2.0/24' }, engine: engineRelease() });
     await loadDistros();
     machine = chooseMachine();
     VM_OPTIONS = vmOptions(machine);
@@ -4006,9 +4030,10 @@ async function startVM() {
     if (!params.has('nosnapshot')) {
         bootStage('checking for a saved state');
         snapshotFp = await snapshotFingerprint({
-            wasmUrl: new URL('./deps/jsLab/engine/x86emu-wasm.wasm', location.href).href,
-            configUrl: new URL(VM_OPTIONS.configUrl, location.href).href,
-            options: { ...VM_OPTIONS, volumes: undefined },
+            wasmUrl: engineUrls(engineRelease()).wasmBinUrl,
+            configUrl: VM_OPTIONS.configUrl,
+            configOverride: VM_OPTIONS.configOverride,
+            options: { ...VM_OPTIONS, volumes: undefined, configOverride: undefined },
         }).catch((e) => { console.warn('snapshot fingerprint', e); return null; });
     }
     const saved = snapshotFp && await SnapshotStore.load(snapshotKey(), snapshotFp).catch(() => null);

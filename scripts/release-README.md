@@ -6,10 +6,11 @@ A light AI client agent with a TinyEMU-based sandbox system running in the brows
 
 A chat page that turns a Linux VM running in your browser tab into an AI agent's
 computer. The VM is TinyEMU's x86 and RISC-V emulator compiled to WebAssembly; the
-VM tab picks the system ({{distroNames}}), and the model works
-in it through file and shell tools, with skills, sub-agents and folders linked from
-your computer. Nothing runs on a server: the whole site is static files. It needs
-Chrome 95+, Safari 15.4+ or Firefox 131+.
+VM tab picks the system (one of [TinyEMU-distros](https://gramthanos.github.io/TinyEMU-distros/)'
+systems, Debian 13 RISC-V lite by default), and the model works in it through file and shell
+tools, with skills, sub-agents and folders linked from your computer. Nothing runs
+on a server: the whole site is static files. It needs Chrome 95+, Safari 15.4+ or
+Firefox 131+.
 
 ## This site is a build
 
@@ -19,16 +20,19 @@ is from commit {{commit}}; `build-info.json` has the details. To make one
 yourself, in a checkout (`git clone --recursive`):
 
 ```bash
-node scripts/build.mjs {{distroArgs}} --out _site
+node scripts/build.mjs --out _site
 ```
 
 | Path | What |
 |------|------|
 | `index.html`, `js/` | The page |
-| `engine/` | jsLab's browser runtime, and TinyEMU's emulator built to WebAssembly |
+| `engine/` | jsLab's browser runtime |
 | `vendor/bash.js` | bash.js, the bash interpreter the page can run commands in |
-{{distroRows}}
-| `distro/index.json` | The systems the VM tab offers; the page boots `debian-13-riscv64-lite` when it is there, else the first |
+
+The emulator and the systems aren't here: the page loads TinyEMU's WebAssembly
+engine ({{engine}}) from [TinyEMU's Pages](https://gramthanos.github.io/TinyEMU/),
+and the list of systems, their kernels and disks from
+[TinyEMU-distros' Pages](https://gramthanos.github.io/TinyEMU-distros/).
 
 Pages lets browsers cache files for 10 minutes, so right after an update a page that fails to boot
 needs a hard reload (Ctrl+Shift+R).
@@ -36,9 +40,9 @@ needs a hard reload (Ctrl+Shift+R).
 ## Licences
 
 The page is GPL-3.0-or-later ([LICENSE](LICENSE)), as is jsLab's runtime in
-`engine/`; TinyEMU's emulator and bash.js are MIT (`LICENSES/` has each part's
-licence). The guest in `distro/` is none of these: each system there is a [TinyEMU-distros](https://github.com/gramthanos/TinyEMU-distros)
-build whose Linux kernel is GPL-2.0 (as are Alpine's BusyBox and much of Debian's
-userland), and whose other packages carry their own licences; the RISC-V
-systems' firmware, `bios.bin`, is OpenSBI (BSD-2-Clause). The TinyEMU-distros recipe of each ({{distroNames}}) records what went into it
-and where each part's source comes from.
+`engine/`; bash.js is MIT (`LICENSES/` has each part's licence), and so is TinyEMU's
+emulator, loaded from its own site. The guest systems are none of these: each is a
+TinyEMU-distros build whose Linux kernel is GPL-2.0 (as are Alpine's BusyBox and
+much of Debian's userland), and whose other packages carry their own licences; the
+RISC-V systems' firmware, `bios.bin`, is OpenSBI (BSD-2-Clause). The TinyEMU-distros
+recipe of each records what went into it and where each part's source comes from.

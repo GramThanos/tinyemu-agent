@@ -38,9 +38,9 @@ build step for this folder: plain ES modules, loaded by the browser as they are.
 | `js/LinkedFolders.js` | Folders on the user's computer linked into the workspace: `link()` (and `linking`, the paths still copying), `sync()`, the IndexedDB link store |
 | `js/skills.js` | `SkillLibrary` (the `skills` volume: scan, import, remove), `SKILL.md` parsing, `@id` expansion, `skillToolDef` |
 | `js/providers/*.js` | One file per wire format: `claude.js` (Anthropic SDK from esm.sh), `openai.js` (raw fetch + SSE; Gemini, OpenAI, OpenRouter, custom), `webllm.js` + `toolProtocol.js` (local models, text tool calls) |
-| `scripts/serve.mjs` | This repository statically, and each `--distro` at `/distro/<name>/` (local dir or mirrored URL) with its generated `guest.cfg`, plus `/distro/index.json` |
-| `scripts/guest-config.mjs` | `guestConfigText()`: a distro's `config.cfg` → the agent's `guest.cfg`; `distroEntry()`: its line in `distro/index.json` (both used by `serve.mjs` and `build.mjs`) |
-| `scripts/build.mjs` | Release builder: the page's import closure, rewritten for the release layout, plus a distro; `release-README.md` is the release's README |
+| `js/distros.js` | Where the machines come from: `DISTROS_PAGES` (TinyEMU-distros' Pages), `ENGINE` (the TinyEMU release), `parseManifest` (its `manifest.json`), `distroLabel`, and `agentConfig`, the `configOverride` every boot goes through |
+| `scripts/serve.mjs` | This repository statically, and each `--distro` build directory at `/distro/<name>/` (for `?cfg=`) |
+| `scripts/build.mjs` | Release builder: the page's import closure, rewritten for the release layout; `release-README.md` is the release's README |
 | `tests/tools.test.mjs` | Node tests, no VM, no real model |
 
 From `deps/`, the agent depends on:
@@ -49,11 +49,14 @@ From `deps/`, the agent depends on:
 - `deps/jsLab/lib/volumes/Fs9pStore.js`: the in-memory 9p store behind the JS volumes
   (its `listDir` gives each entry's `ino` and change counter `gen`, which linked
   folders rely on);
-- the engine `deps/jsLab/engine/x86emu-wasm.{js,wasm}` (not committed:
-  `node deps/jsLab/scripts/fetch-engine.mjs`, from TinyEMU's Pages or `--from` a
-  build of `deps/TinyEMU`), built from TinyEMU's C sources by its `Makefile.js`;
+- `deps/jsLab/lib/vm/TinyemuConfig.js`: `parseConfig` and friends, which apply the
+  page's `configOverride` (and the tests use);
 - `deps/bash.js/bash.js`.
-  Despite the name it has both machines, the PC and RISC-V (riscv32/riscv64); the
+
+Not from `deps/`: the engine, `x86emu-wasm.{js,wasm}`, is loaded from TinyEMU's
+Pages (`engine/<ENGINE>/`, through jsLab's `engineUrls`), and the guests from
+TinyEMU-distros' Pages. `deps/TinyEMU` and `deps/TinyEMU-distros` are there for
+their sources and for building them. Despite its name the engine has both machines, the PC and RISC-V (riscv32/riscv64); the
   config's `machine:` picks one. `ENGINE_ARCHES` in `index.html` lists what it runs,
   and the kernel arguments the page adds (`vmOptions`) are per arch: the x86 timing
   ones are meaningless to a RISC-V kernel.
@@ -488,55 +491,60 @@ From `deps/`, the agent depends on:
 - **One saved state per machine:** `snapshotKey()`. `alpine-3.20-x86`, the first default
   (then `alpine-3.20-riscv64`, now `debian-13-riscv64-lite`), keeps the old key
   `tinyemu-agent-vm`, so existing saved states still resume.
-- **Changing `guest.cfg`'s shape** (`scripts/guest-config.mjs`) changes the
+- **Changing what `agentConfig` does** (`js/distros.js`) changes the
   fingerprint, so existing snapshots are discarded and the next load cold-boots.
   That is intended.
 
 ### The server
 - **Serve with `no-store`.** The in-app browser kept stale modules with `no-cache`.
-- **Send `Last-Modified`.** Snapshot fingerprints depend on it (`guest.cfg` carries
-  `config.cfg`'s).
-- **Stay read-only,** and inside this repository plus the distro: distro names must match
-  `/^[\w-][\w.-]*$/`, and paths are checked to stay under `ROOT`.
-- **Put the distro where the built site has it:** `/distro/<name>/`, relative to
-  the page, and the list at `/distro/index.json` (`{ distros: [{ name, label,
-  arch }] }`, from `distroEntry`). The page has one code path for both; don't add a
-  dev-only route it depends on. Without the list (an older release) the page offers
-  just its default distro.
-- **A URL distro's config names its own URL** (TinyEMU-distros' Pages fills in
-  `${ASSET_BASE}`), so `guestConfigText(..., { base })` takes that prefix off. Without
-  it the browser fetched the kernel and disk from the host directly and only
-  `config.cfg` was mirrored.
+- **Send `Last-Modified`.** Snapshot fingerprints follow a local distro's files by it.
+- **Stay read-only,** and inside this repository plus the `--distro` directories:
+  distro and file names must match `/^[\w-][\w.-]*$/` (one flat directory), and
+  paths are checked to stay under `ROOT`.
+- **The page doesn't depend on it:** no route the built site lacks. A local distro
+  is only reached through `?cfg=`.
+
+### Where the machines come from (js/distros.js)
+- **Nothing is copied into the site.** The VM tab's list is TinyEMU-distros' Pages
+  `manifest.json` (`parseManifest`), read at each load; each distro boots from its
+  own `config.cfg` there (absolute URLs, CORS `*`). Without the manifest the page
+  offers just `DEFAULT_DISTRO` and says why in the VM tab.
+- **Every boot goes through `agentConfig`** (jsLab's `configOverride`): `ethN` is
+  dropped, the three JS volumes take the next free `fsN`, and an unfilled
+  `${ASSET_BASE}` (a local build) is taken out of the absolute paths. jsLab applies
+  it on the page and boots a `data:` URL, which needs engine v2026-11-23 or later
+  (older ones abort on a non-http(s) config). `?cfg=` goes through it too.
+- **The engine is pinned** (`ENGINE`), not `latest`: a saved state only resumes on
+  the wasm it was saved with, and a new release should be tried before the page
+  moves to it. `?engine=` takes a release name or a folder on the page's own origin,
+  never another host: the engine runs as code in the page's worker.
+- **The fingerprint** gets the engine's wasm URL (`engineUrls(...).wasmBinUrl`), the
+  config URL and the same `configOverride` the VM gets, and the options without it
+  (a function doesn't stringify).
 
 ### TinyEMU-distros
 - **One release holds every distro** (tag `distros-<date>-<run>`), each as
   `<name>.tar` (kernel, chunks, `config.cfg` with a literal `${ASSET_BASE}`,
-  `bios.bin` for RISC-V). The deploy workflow takes the latest unless its `release`
-  input names one; the old per-distro `distro-<name>` tags are gone.
+  `bios.bin` for RISC-V). Its Pages hold the latest release only, unpacked, plus
+  `manifest.json`: a new release reaches the page with no deploy here.
 - **`<name>-lite` is what the agent expects:** `init=/bin/sh`, a root shell on the
   console. A plain `<name>` is the full image (OpenRC, console autologin): it works,
-  slower, and its networking service fails at boot since `guest.cfg` drops `eth0`.
+  slower, and its networking service fails at boot since `agentConfig` drops `eth0`.
   `DEFAULT_DISTRO` is `debian-13-riscv64-lite`.
 
 ### The site (scripts/build.mjs, the deploy workflow, GitHub Pages)
 - **Only sources are committed.** The site is built by `.github/workflows/deploy.yml`
   (run by hand) into a Pages artifact; nothing built goes into git (`_site/` is
-  ignored). The engine is built from `deps/TinyEMU` or taken from TinyEMU's Pages,
-  and the distros come from TinyEMU-distros' Releases.
+  ignored). The site is the page, jsLab's `lib/` and bash.js: no engine, no distros.
 - **Everything the page loads must be reachable from its imports** (`from`,
   `import()`, `new URL('…', …)` with a relative string): that is how the build
   finds what to copy. A path built at runtime from pieces is missed. This
-  repository's files go to the site root, `deps/jsLab/lib/` and
-  `deps/jsLab/engine/` to `engine/`, `deps/bash.js/` to `vendor/` (the layout the
-  site had before the submodules, which keeps saved VM states valid); anything else
-  fails the build. Specifiers on comment lines are neither followed nor rewritten.
-- **No absolute or server paths in the page.** Pages serves it under
-  `/tinyemu-agent/` with no server logic, so everything is relative to the page or
-  to `guest.cfg`.
-- **`guest.cfg` names the kernel and disk relative to itself,** which needs the
-  engine to resolve drive paths against the config (`jsemu.c`, `init_vm_drive_next`).
-  A `blob:` config isn't an option: the C loader reads non-http(s) config URLs as
-  local files and aborts.
+  repository's files go to the site root, `deps/jsLab/lib/` to `engine/`,
+  `deps/bash.js/` to `vendor/` (the layout the site had before the submodules);
+  anything else fails the build. Specifiers on comment lines are neither followed nor rewritten.
+- **No absolute or server paths in the page** for its own files. Pages serves it
+  under `/tinyemu-agent/` with no server logic, so they are relative to the page.
+  The only absolute URLs are the two Pages sites in `js/distros.js`.
 - **Pages caches for 10 minutes** (`max-age=600`, not configurable): right after a
   release a browser can mix old and new modules (an early `vm_start failed:
   Aborted()` or `Uncaught [object Object]`); a hard reload fixes it. Test releases
@@ -544,9 +552,9 @@ From `deps/`, the agent depends on:
 
 ## Verifying a change
 
-1. **Unit tests:** `node tests/tools.test.mjs` (114 tests; jsLab's `npm test` covers the volume store). On Windows they
+1. **Unit tests:** `node tests/tools.test.mjs` (115 tests; jsLab's `npm test` covers the volume store). On Windows they
    use Git Bash's `sh`, and the test bridge stubs `setsid` when it is missing.
-2. **In a browser:** start the server (`node scripts/serve.mjs --distro <build dir>`), open
+2. **In a browser:** start the server (`node scripts/serve.mjs`), open
    `/`, and keep the page **visible**. A hidden or
    background tab is throttled, and boot timings from it are meaningless.
 3. **Drive it without a model key:**
@@ -573,14 +581,15 @@ From `deps/`, the agent depends on:
    Say so when you report, rather than implying they were tested.
 
 **When the change needs a new engine** (TinyEMU's C sources, `wasm/lib.js`, or
-exported functions), make it in TinyEMU, move `deps/TinyEMU`, and build the wasm:
+exported functions), make it in TinyEMU, move `deps/TinyEMU`, build the wasm, and open the page with
+`?engine=deps/TinyEMU/dist/wasm/`:
 
 ```bash
 docker run --rm -v "$PWD/deps/TinyEMU":/src -w /src emscripten/emsdk:3.1.74 make -f Makefile.js
-node deps/jsLab/scripts/fetch-engine.mjs --from deps/TinyEMU/dist/wasm
 ```
 
-On Windows Git Bash, add `MSYS_NO_PATHCONV=1` and use `"$(pwd -W)"`. TinyEMU's own
+On Windows Git Bash, add `MSYS_NO_PATHCONV=1` and use `"$(pwd -W)"`. Once TinyEMU
+publishes it as a release, move `ENGINE` in `js/distros.js` to it. TinyEMU's own
 `AGENTS.md` lists the engine's checks (the x86 selftest, the JIT tests).
 
 ## Conventions
