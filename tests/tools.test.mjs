@@ -785,11 +785,15 @@ function forkable(steps, forkScripts) {
     return p;
 }
 
-await test('Delegate runs a sub-agent with the tools minus Delegate and returns its report', async () => {
+await test('Delegate runs a sub-agent with the tools its policy leaves (no Delegate here) and returns its report', async () => {
     const used = [];
     let delegate;
     const t = createTools(new LocalBridge(work), { cwd: rootSh, delegate: (i, c) => delegate(i, c) });
-    delegate = createDelegate({ tools: t.without(DELEGATE_TOOL), on: { usage: (u) => used.push(u) } });
+    // As the page's sub-agent mode does by default: Delegate off.
+    delegate = createDelegate({
+        tools: t.without(DELEGATE_TOOL), on: { usage: (u) => used.push(u) },
+        toolsFor: (x) => x.withPolicy((n) => (n === DELEGATE_TOOL ? false : undefined)),
+    });
     assert.ok(t.defs.some((d) => d.name === DELEGATE_TOOL));
 
     const provider = forkable([
@@ -812,11 +816,53 @@ await test('Delegate runs a sub-agent with the tools minus Delegate and returns 
     assert.deepEqual(sub.history[0], ['user', 'Read a.txt']);
     const subResults = sub.history[1][1];
     assert.match(subResults[0].content, /1\talpha/);
-    assert.deepEqual(subResults[1], { id: 's2', content: 'The Delegate tool is not available here.', isError: true });
+    assert.deepEqual(subResults[1], { id: 's2', content: 'The Delegate tool is turned off.', isError: true });
     const main = provider.history[1][1][0];
     assert.deepEqual(main, { id: 'd1', content: 'a.txt starts with alpha.', isError: false });
     assert.equal(progress.join(''), 'Looking.\n▸ Read a.txt\n▸ Delegate x\n'
-        + '  ✗ Delegate: The Delegate tool is not available here.\na.txt starts with alpha.');
+        + '  ✗ Delegate: The Delegate tool is turned off.\na.txt starts with alpha.');
+});
+
+await test('a sub-agent given Delegate delegates in turn, as deep as allowed, sharing one place', async () => {
+    let delegate;
+    const t = createTools(new LocalBridge(work), { cwd: rootSh, delegate: (i, c) => delegate(i, c) });
+    // One sub-agent at a time: one waiting for its own would wait for ever if it kept its place.
+    delegate = createDelegate({ tools: t, maxConcurrent: 1, maxDepth: 2 });
+    const forks = [];
+    const scripts = [
+        [{ stop: 'tool_use', toolCalls: [{ id: 'a', name: 'Delegate', input: { description: 'deeper', prompt: 'go deeper' } }] },
+            { stop: 'end', text: 'level 1 done' }],
+        [{ stop: 'tool_use', toolCalls: [{ id: 'b', name: 'Delegate', input: { description: 'deepest', prompt: 'go deeper still' } }] },
+            { stop: 'end', text: 'level 2 done' }],
+    ];
+    const make = (steps) => {
+        const p = scripted(steps);
+        p.fork = ({ system, tools: defs }) => {
+            const x = make(scripts.shift());
+            x.system = system;
+            x.defs = defs.map((d) => d.name);
+            forks.push(x);
+            return x;
+        };
+        return p;
+    };
+    const provider = make([
+        { stop: 'tool_use', toolCalls: [{ id: 'd', name: 'Delegate', input: { description: 'top', prompt: 'do it' } }] },
+        { stop: 'end' },
+    ]);
+    const r = await Promise.race([
+        new Agent({ provider, tools: t }).send('go'),
+        new Promise((resolve) => setTimeout(() => resolve({ stop: 'hung' }), 5000)),
+    ]);
+    assert.equal(r.stop, 'end');
+    assert.equal(forks.length, 2, 'the third level was refused before it started');
+    assert.ok(forks[0].defs.includes(DELEGATE_TOOL));
+    assert.equal(forks[0].defs.includes(ASK_TOOL), false);
+    assert.deepEqual(forks[0].history[1][1][0], { id: 'a', content: 'level 2 done', isError: false });
+    const refused = forks[1].history[1][1][0];
+    assert.equal(refused.isError, true);
+    assert.match(refused.content, /only 2 levels deep/);
+    assert.deepEqual(provider.history[1][1][0], { id: 'd', content: 'level 1 done', isError: false });
 });
 
 await test('Delegate reports a sub-agent that stops early, and needs a forkable provider', async () => {

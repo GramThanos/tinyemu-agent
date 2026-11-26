@@ -6,7 +6,7 @@
  */
 
 import { envKey } from '../../js/projects.js';
-import { chatById, S } from '../app/state.js';
+import { descendsFrom, mainChatOf, S } from '../app/state.js';
 import { distroInfo, envLabelOf, STATUS_WORDS } from '../app/machines.js';
 import { pickName } from '../app/models.js';
 import { envKeyOf, envOf, projectById, projectOf, saveProjects } from '../app/world.js';
@@ -17,7 +17,7 @@ import { hideSidebar } from '../app/layout.js';
 function ChatRow({ c }) {
     const s = S.sessions.get(c.id);
     const sub = c.kind === 'sub';
-    const subs = S.chats.filter((x) => x.parent === c.id).length;
+    const subs = S.chats.filter((x) => descendsFrom(x, c)).length;
     const title = sub
         ? `Sub-agent: ${c.title}\n${c.subName || ''}, ${c.status || 'interrupted'}\nStarted ${new Date(c.created).toLocaleString()}\nRead-only: the main agent gave it its task`
         : `${c.title}\nStarted ${new Date(c.created).toLocaleString()}` + (c.model ? `\nModel: ${c.model}` : '')
@@ -59,7 +59,7 @@ function ProjectGroup({ p, current, family }) {
                     {!mine.length && <div className="empty">No chats yet</div>}
                     {mine.map((c) => [
                         <ChatRow key={c.id} c={c} />,
-                        ...(c.id === family ? S.chats.filter((x) => x.kind === 'sub' && x.parent === c.id).map((x) => <ChatRow key={x.id} c={x} />) : []),
+                        ...(c.id === family ? S.chats.filter((x) => x.kind === 'sub' && mainChatOf(x) === c).map((x) => <ChatRow key={x.id} c={x} />) : []),
                     ])}
                 </div>
             )}
@@ -83,8 +83,8 @@ function StatusBadge() {
 
 export default function Sidebar({ ref, children }) {
     const cur = projectOf(S.chat);
-    const family = S.chat.kind === 'sub' ? S.chat.parent : S.chat.id;
-    const orphans = S.chats.filter((x) => x.kind === 'sub' && !chatById(x.parent));
+    const family = mainChatOf(S.chat)?.id ?? S.chat.parent;
+    const orphans = S.chats.filter((x) => x.kind === 'sub' && !mainChatOf(x));
     return (
         <aside id="sidebar" aria-label="Projects and chats" ref={ref}>
             {children}

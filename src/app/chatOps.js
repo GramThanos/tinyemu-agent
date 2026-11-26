@@ -13,12 +13,12 @@ import { deleteVolumeDatabases } from '../../js/volumes.js';
 import { SnapshotStore } from '../../deps/jsLab/lib/vm/index.js';
 import { ENV_NAME } from '../../js/tools.js';
 import { emit } from './store.js';
-import { chatById, formatSize, plural, S, writeJSON } from './state.js';
+import { chatById, descendsFrom, formatSize, plural, S, writeJSON } from './state.js';
 import { pickOf } from './models.js';
 import { envOf, pool, projectById, projectOf, rt, runtimes, saveProjects, writeGuestEnv, WORKSPACE_VOLUME } from './world.js';
 import { volumeTotals } from './data.js';
 import {
-    addMessage, addWelcome, chatStore, drawSession, dropSession, saveChat, saveChatSoon, sessionOf, unsaved, cancelSaves,
+    addMessage, addWelcome, chatStore, drawSession, dropSession, logTopic, saveChat, saveChatSoon, sessionOf, unsaved, cancelSaves,
 } from './sessions.js';
 import { ensureChatShape } from './stats.js';
 import { ensureAgent } from './agents.js';
@@ -75,7 +75,7 @@ export async function newChatIn(p = projectOf(S.chat)) {
 /* A chat goes with its sub-agents' chats; anything of them still working stops.
  * If no other chat uses its environment, the page asks whether to delete that too. */
 export async function deleteChat(c) {
-    const family = [c, ...S.chats.filter((x) => x.parent === c.id)];
+    const family = [c, ...S.chats.filter((x) => descendsFrom(x, c))];
     const busy = family.some((x) => S.sessions.get(x.id)?.running);
     const subs = family.length - 1;
     if ((c.events.length || busy) && !confirm(`Delete the chat "${c.title}"`
@@ -121,6 +121,27 @@ export async function deleteChat(c) {
         showChat(n);
     }
     dropSession(old);
+}
+
+/* A sub-agent's chat that finished its task, deleted without asking when Settings →
+ * Agent says so; its figures already count in the chat that delegated. It stays if
+ * a chat of its own sub-agents does (one failed or was stopped), so that one keeps
+ * its parent. Open, it gives way to the chat that delegated. */
+export function removeFinishedSub(c) {
+    if (c.kind !== 'sub' || !S.chats.includes(c) || S.chats.some((x) => x.parent === c.id)) return false;
+    const parent = chatById(c.parent);
+    if (S.chat === c && !parent) return false;
+    S.chats = S.chats.filter((x) => x !== c);
+    unsaved.delete(c);
+    chatStore.delete(c.id).catch(() => {});
+    if (S.chat === c) {
+        S.chat = null;
+        showChat(parent);
+    }
+    dropSession(c);
+    if (parent) emit(logTopic(parent));   // its Delegate card no longer links to it
+    emit('ui');
+    return true;
 }
 
 export function renameChat(c) {

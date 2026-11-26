@@ -35,6 +35,7 @@ export const SETTINGS_DEFAULT = {
     pageFiles: true,      // in a VM, Read/Edit/Write of the JS volumes served from the page
     wakeLock: true,       // a Screen Wake Lock while a turn runs
     keepAudio: false,     // a quiet tone while a turn runs, so the tab isn't frozen (js/keepAwake.js)
+    subAutoDelete: false, // a sub-agent's chat is deleted once it finished its task (chatOps.removeFinishedSub)
     compactAuto: true, compactAt: 80, contextWindow: null,
     systemPrompt: null,   // before modes: the edited prompt, moved into the build mode once (src/app/modes.js)
     ...Object.fromEntries(Object.entries(LIMITS).map(([k, [d]]) => [k, d])),
@@ -54,6 +55,7 @@ export const settings = (() => {
     delete s.bashJs;   // before environments: Bash in bash.js inside the VM's tools
     if (typeof s.wakeLock !== 'boolean') s.wakeLock = SETTINGS_DEFAULT.wakeLock;
     if (typeof s.keepAudio !== 'boolean') s.keepAudio = SETTINGS_DEFAULT.keepAudio;
+    if (typeof s.subAutoDelete !== 'boolean') s.subAutoDelete = SETTINGS_DEFAULT.subAutoDelete;
     for (const key of Object.keys(LIMITS)) if (!inLimits(key, s[key])) s[key] = SETTINGS_DEFAULT[key];
     return s;
 })();

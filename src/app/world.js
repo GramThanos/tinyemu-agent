@@ -21,7 +21,7 @@ import { VolumeHost } from '../../js/volumes.js';
 import { envKey, ProjectLinkStore, ProjectStore, workspaceKey } from '../../js/projects.js';
 import { EnvironmentPool } from '../../js/environments.js';
 import { emit } from './store.js';
-import { chatById, params, readJSON, S } from './state.js';
+import { mainChatOf, params, readJSON, S } from './state.js';
 import { settings } from './settings.js';
 import { DEFAULT_DISTRO, distroInfo, engineRelease, recordBoot, vmOptions } from './machines.js';
 import { pickName, pickOf } from './models.js';
@@ -62,7 +62,7 @@ export function saveProjects() {
 /* The project a chat belongs to (a sub-agent's chat: its parent's). */
 export function projectOf(c) {
     if (!c) return S.projects[0];
-    const main = c.kind === 'sub' ? chatById(c.parent) || c : c;
+    const main = mainChatOf(c) || c;
     return projectById(main.project);
 }
 
@@ -128,13 +128,13 @@ export const pool = new EnvironmentPool({
         const secs = recordBoot(env);
         if (secs !== null && S.chat && envOf(S.chat) === env) addMessage('note', `${env.label} is ready (${env.how} in ${secs} s).`);
     },
-    isOpen: (id) => S.chat?.id === id || S.chat?.parent === id,
+    isOpen: (id) => S.chat?.id === id || mainChatOf(S.chat)?.id === id,
 }, { idleMs: () => settings.idlePauseMin * 60000 });
 
 /* A chat's environment: its own choice, else its project's default. Sub-agents
  * work in their parent's. */
 export function envKeyOf(c) {
-    const main = c?.kind === 'sub' ? chatById(c.parent) || c : c;
+    const main = mainChatOf(c) || c;
     return main?.env || envKey(projectOf(main).env);
 }
 export function envOf(c) {

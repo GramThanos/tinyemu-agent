@@ -2,7 +2,8 @@
 /*
  * ChatLog.jsx — one chat's log: its items (src/app/sessions.js), the waiting line,
  * and the messages queued during a turn, which stay last. Guest and model text
- * only ever go in as text (React's children), never as HTML.
+ * only ever go in as text (React's children), never as HTML; the model's replies
+ * as Markdown, rebuilt from an allowlist (Markdown.jsx).
  *
  * It follows the end while the reader is there: a new item scrolls to it, and
  * more text in the last one keeps it in view, unless the reader scrolled up.
@@ -21,6 +22,7 @@ import { envLabelOf } from '../app/machines.js';
 import { envKeyOf, projectOf } from '../app/world.js';
 import { cardsOpen, logTopic, subChatOf, touch } from '../app/sessions.js';
 import { switchChat } from '../app/chatOps.js';
+import { Markdown } from './Markdown.jsx';
 
 const Stat = ({ stat }) => (stat ? <span className="mstat" title={stat.title}>{stat.text}</span> : null);
 
@@ -28,7 +30,7 @@ const Message = memo(function Message({ it }) {
     const [actions, setActions] = useState(true);
     return (
         <div className={`msg ${it.cls}`}>
-            {it.text}
+            {it.cls === 'assistant' ? <Markdown text={it.text} /> : it.text}
             {it.actions && actions && (
                 <div className="actions">
                     {it.actions.map(([label, fn]) => (

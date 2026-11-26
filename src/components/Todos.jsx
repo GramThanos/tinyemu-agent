@@ -7,7 +7,7 @@
  */
 
 import { useState } from 'react';
-import { S } from '../app/state.js';
+import { descendsFrom, S } from '../app/state.js';
 import { switchChat } from '../app/chatOps.js';
 
 const MARK = { pending: '○', in_progress: '◐', completed: '●' };
@@ -15,7 +15,7 @@ const MARK = { pending: '○', in_progress: '◐', completed: '●' };
 export default function Todos({ c }) {
     const [open, setOpen] = useState(false);
     const list = c.todos || [];
-    const subs = c.kind === 'sub' ? [] : S.chats.filter((x) => x.parent === c.id && x.todos?.length && S.sessions.get(x.id)?.running);
+    const subs = c.kind === 'sub' ? [] : S.chats.filter((x) => descendsFrom(x, c) && x.todos?.length && S.sessions.get(x.id)?.running);
     if (!list.length && !subs.length) return null;
     const done = list.filter((x) => x.status === 'completed').length;
     const now = list.find((x) => x.status === 'in_progress');

@@ -13,7 +13,7 @@ import { newChat, titleFrom } from '../../js/chats.js';
 import { recordSubAgent } from '../../js/figures.js';
 import { DELEGATE_TOOL, ToolError } from '../../js/tools.js';
 import { emit } from './store.js';
-import { chatById, S, stampText, anyRunning } from './state.js';
+import { chatById, mainChatOf, S, stampText, anyRunning } from './state.js';
 import { contextOptions, keepAwake, settings } from './settings.js';
 import { connections, pickLabel, pickOf, sameModel } from './models.js';
 import { chatTools, currentSystem, envOf, projectOf, rt, skills, subSystem } from './world.js';
@@ -28,6 +28,7 @@ import { choose, openSettings } from './dialogs.js';
 
 /* The chat a tool call's ctx (or a sub-agent's) belongs to. */
 const chatOfCtx = (ctx) => chatById(ctx?.meta?.chatId);
+const mainOfCtx = (ctx) => mainChatOf(chatOfCtx(ctx));
 
 /* Something about a chat's controls changed: running, its agent, its questions. */
 export function changed() {
@@ -35,9 +36,10 @@ export function changed() {
     emit('ui');
 }
 
-/* Sub-agents get their caller's tools less Delegate and ask_user, the same
- * settings, and a read-only chat of their own (subView). Their usage, tool
- * calls and compactions also count in the chat that delegated. */
+/* Sub-agents get their caller's tools less ask_user (Delegate only if the
+ * sub-agent mode turns it on), the same settings, and a read-only chat of their
+ * own (subView). Their usage, tool calls and compactions also count in the chat
+ * the user started (mainChatOf), however deep they delegated. */
 export const delegate = createDelegate({
     tools: null,   // always the caller's (ctx.tools)
     system: (ctx) => subSystem(chatOfCtx(ctx) || S.chat),
@@ -47,16 +49,16 @@ export const delegate = createDelegate({
     emptyRetries: () => settings.emptyRetries,
     networkRetries: () => settings.networkRetries,
     toolOutputMax: () => settings.toolOutputMax,
-    log: (entry, ctx) => logExchange(chatOfCtx(ctx), entry),
+    log: (entry, ctx) => logExchange(mainOfCtx(ctx), entry),
     on: {
-        usage: (u, kind, ctx) => addUsage(chatOfCtx(ctx), 'sub', u, kind),
+        usage: (u, kind, ctx) => addUsage(mainOfCtx(ctx), 'sub', u, kind),
         compacted(c, ctx) {
-            const p = chatOfCtx(ctx);
+            const p = mainOfCtx(ctx);
             if (!p) return;
             p.compactions.sub++;
             if (p === S.chat) emit('ui');
         },
-        toolEnd: (call, result, stats, ctx) => countTool(chatOfCtx(ctx), call.name, stats.ms, result.isError),
+        toolEnd: (call, result, stats, ctx) => countTool(mainOfCtx(ctx), call.name, stats.ms, result.isError),
     },
     view: (info) => subView(info),
     // Sub-agents work in the sub-agent mode, with its choice of tools.
@@ -72,7 +74,7 @@ export const todos = {
         if (!c) throw new Error('this agent has no chat to keep a list in');
         c.todos = list;
         saveChatSoon(c);
-        if (c === S.chat || c.parent === S.chat?.id) emit('ui');
+        if (c === S.chat || mainChatOf(c) === S.chat) emit('ui');
     },
 };
 
@@ -470,7 +472,14 @@ function subView(info) {
                 else addChatNote('problem', `Failed: ${text}`);
             });
             changed();
-            saveChatSoon(c, 0);
+            // Finished: deleted if Settings → Agent says so (failed or stopped ones stay).
+            // chatOps imports this module, so it is loaded when used; not saved meanwhile,
+            // or the save could put back a chat just deleted.
+            if (status === 'done' && settings.subAutoDelete) {
+                import('./chatOps.js')
+                    .then(({ removeFinishedSub }) => { if (!removeFinishedSub(c)) saveChatSoon(c, 0); })
+                    .catch(() => saveChatSoon(c, 0));
+            } else saveChatSoon(c, 0);
         },
     };
 }

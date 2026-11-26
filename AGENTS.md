@@ -120,7 +120,8 @@ TinyEMU's Pages, the guests from TinyEMU-distros' Pages. The engine has both mac
   provider through `setTools`.
 - **A view's policy chooses tools** (`withPolicy(fn)`: true, false, or undefined for
   the `isEnabled` default), and `run` refuses what the view doesn't offer.
-  `without()` always wins: sub-agents never get Delegate or ask_user.
+  `without()` always wins: sub-agents never get ask_user. Delegate is the
+  sub-agent mode's choice (off as it ships).
 - **ask_user and the to-do tools are the page's.** ask_user never reaches a
   sub-agent and doesn't wait for the VM; `validateInput` checks top-level types only,
   `askQuestions` the items. To-do lists are per agent, on its chat record
@@ -230,9 +231,19 @@ TinyEMU's Pages, the guests from TinyEMU-distros' Pages. The engine has both mac
   never stops the agent.
 
 ### Delegate
-- **Sub-agents get the caller's tools less Delegate and ask_user, in their own
-  shell,** then the sub-agent mode's policy (`toolsFor`). Only the final message goes
-  back; a turn without one is asked for a report (`WRAP_UP_TRIES`).
+- **Sub-agents get the caller's tools less ask_user, in their own shell,** then the
+  sub-agent mode's policy (`toolsFor`), which turns Delegate off unless the user turns
+  it on. Only the final message goes back; a turn without one is asked for a report
+  (`WRAP_UP_TRIES`).
+- **Sub-agents that delegate:** each level is one deeper (`ctx.delegation`), refused
+  past `SUBAGENT_MAX_DEPTH`. One waiting for its own sub-agents lends them its place
+  among `maxConcurrent` and takes it back after: keeping it would deadlock. A
+  sub-agent's chat may have a sub-agent's chat as its parent: use `mainChatOf(c)`
+  (`descendsFrom`) for "the chat the user started", never `chatById(c.parent)`.
+- **A sub-agent's chat may be gone** once it finished (`subAutoDelete`,
+  `removeFinishedSub`, after the view's `done`): look it up (`subChatOf`) and cope
+  with null. Only a `'done'` one goes, and never while a chat of its own sub-agents
+  stays, so no sub-agent's chat loses its parent that way.
 - **`fork()` shares the client or engine, not the history.** WebLLM forks share one
   engine, so generations queue on it (`_exclusive`).
 - **`maxConcurrent` caps sub-agents at once;** the rest queue, and Stop can leave the
@@ -283,6 +294,12 @@ TinyEMU's Pages, the guests from TinyEMU-distros' Pages. The engine has both mac
   `boot()` runs once.
 - **Guest, model and file-name text go in as text only:** never
   `dangerouslySetInnerHTML` or `innerHTML`. That keeps keys out of the guest's reach.
+  The model's replies are Markdown (`Markdown.jsx`): showdown's HTML is parsed in an
+  inert document and rebuilt as React elements from an allowlist (no images, no
+  attributes but checked http(s)/mailto hrefs and a code block's `language-` class);
+  anything else shows as its source text. showdown has open advisories (ReDoS in
+  links; XSS through `metadata` and table header ids): keep those options off, its
+  HTML out of the DOM, and long replies (`MAX_MARKDOWN`) as plain text.
 - **Wrap every `localStorage` access in try/catch;** the page must work without
   storage. Reading `globalThis.localStorage` itself throws when storage is blocked,
   so the stores' defaults go through `pageStorage()`.

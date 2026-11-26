@@ -9,7 +9,7 @@
 
 import { Connections, modelSettingsShape, offeredModels, ProviderStore } from '../../js/providerStore.js';
 import { emit } from './store.js';
-import { chatById, params, S } from './state.js';
+import { mainChatOf, params, S } from './state.js';
 import { effortFor } from './settings.js';
 import { projectOf } from './world.js';
 
@@ -56,7 +56,7 @@ export const sameModel = (a, b) => !!a && !!b && a.provider === b.provider && a.
 /* The model a chat uses: its own pick, else its project's, else the one saved before
  * projects, else the first offered. A sub-agent's chat shows its parent's. */
 export function pickOf(c) {
-    const main = c?.kind === 'sub' ? chatById(c.parent) || c : c;
+    const main = mainChatOf(c) || c;
     const offered = offeredModels(S.providers);
     // A scripted provider lasts until the page reloads.
     const usable = (p) => p && (p.provider === TEST_PROVIDER ? connections.loaded.has(`${p.provider}/${p.model}`) : offered.some((m) => sameModel(m, p)));

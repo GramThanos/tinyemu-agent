@@ -168,7 +168,7 @@ export const DELEGATE_TOOL = 'Delegate';
 /* Offered when createTools() gets a `delegate` runner (see Agent.js). */
 export const DELEGATE_DEF = {
     name: DELEGATE_TOOL,
-    description: 'Hands a self-contained task to a sub-agent: a new conversation with the same model and the same tools (except Delegate) in the same VM. It sees only your prompt, not this conversation, so include everything it needs: the goal, the relevant paths and facts, and what to report back. It returns the sub-agent\'s final report. Use it for a piece of work that would fill your context with detail you don\'t need afterwards, such as a broad search or an independent subtask. Several Delegate calls in one message run at the same time; give them work that doesn\'t touch the same files.',
+    description: 'Hands a self-contained task to a sub-agent: a new conversation with the same model and the same tools (unless the user lets sub-agents delegate, without Delegate) in the same VM. It sees only your prompt, not this conversation, so include everything it needs: the goal, the relevant paths and facts, and what to report back. It returns the sub-agent\'s final report. Use it for a piece of work that would fill your context with detail you don\'t need afterwards, such as a broad search or an independent subtask. Several Delegate calls in one message run at the same time; give them work that doesn\'t touch the same files.',
     input_schema: {
         type: 'object',
         properties: {
@@ -995,7 +995,7 @@ echo "$! $J"`,
 
         /**
          * The same tools, sharing the shells and file ordering, minus `exclude`:
-         * what a sub-agent gets, so it can't delegate in turn.
+         * what a sub-agent gets (less ask_user, which only the user can answer).
          */
         without(...more) { return view(shellName, [...exclude, ...more], policy); },
 

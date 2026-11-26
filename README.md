@@ -106,6 +106,12 @@ The page has three columns:
   - **Log**: every exchange of the chat (see [Log](#log)), and its token usage and
     tool calls.
 
+**Replies** show as Markdown ([showdown](https://github.com/showdownjs/showdown), part of
+the build): headings, lists, emphasis, code, tables, quotes and links. Links open in a
+new tab, and only http(s) and mailto ones are links. Images aren't shown, and any HTML
+in a reply shows as the text it is, so a reply can't run script or make the page fetch
+anything. A reply over 100,000 characters shows as plain text.
+
 **Chats** are kept in this browser, so a reload brings them back:
 - **+ New chat** starts one in the open chat's project, with the project's
   environment and model (or the model the open chat uses). A chat is named after its
@@ -118,10 +124,16 @@ The page has three columns:
   another's; a project's files are shared by its chats.
 - **Sub-agents' chats:** each sub-agent (see [Tools](#tools), Delegate) gets a chat of
   its own, **↳ its task**, under its main chat's row while that chat (or one of its
-  sub-agents') is open. It shows the sub-agent's conversation as it happens: the task
-  it was given, its replies, thinking and tool cards. It is read-only: the message box
-  is off, and **Stop** stops that sub-agent alone (the main agent is told). The
-  Delegate card's **open ↗** opens it; ✓ or ✗ on its row says how it ended.
+  sub-agents') is open; a sub-agent's own sub-agents show there too. It shows the
+  sub-agent's conversation as it happens: the task it was given, its replies, thinking
+  and tool cards. It is read-only: the message box is off, and **Stop** stops that
+  sub-agent alone (the main agent is told). The Delegate card's **open ↗** opens it;
+  ✓ or ✗ on its row says how it ended. With **Delete a sub-agent's chat once it has
+  finished its task** (Settings → Agent, off by default), a sub-agent that finished
+  has its chat deleted (its report stays in the Delegate card, its figures in the
+  main chat; open, the chat that delegated takes its place). Chats of sub-agents that
+  failed or were stopped stay, and so does the chat of one whose own sub-agents' chat
+  stayed.
 - **ⓘ**, at the top, shows the open chat's usage, then its figures:
   - **Usage:** the tokens and requests so far (sub-agents and compaction summaries
     included), the time spent waiting on the model (API time) and working, the
@@ -716,8 +728,10 @@ All the tool calls in one model message run at the same time.
 - **skill**, only while you have skills, loads one skill's instructions (see
   [Skills](#skills)). It reads them in the page, so it works while the VM boots.
 - **Delegate** hands a task to a sub-agent: a new conversation with the same model
-  and the same tools, except Delegate and ask_user, so sub-agents can't start their
-  own or ask you anything. It sees only the prompt the model writes for it, and only
+  and the same tools, except ask_user (sub-agents can't ask you anything) and,
+  unless you turn it on in the Sub-agent mode (Settings → Modes), Delegate. Turned
+  on, sub-agents can start their own, up to 3 levels deep; theirs show under the
+  chat you started, and count in its figures. It sees only the prompt the model writes for it, and only
   its final message comes back as the result. Its card shows its progress (each tool
   call, and any that failed) and then its report; its whole conversation is in its own
   chat tab. It works in its own shell, which starts where the caller's is. It
@@ -779,8 +793,8 @@ Build's prompt). For each mode:
 - its **system prompt**, with variables (below) and a preview of the prompt as the
   open chat would get it;
 - its **tools**: each one "as in Tools" (Settings → Tools decides), on, or off,
-  whatever Settings → Tools says. Sub-agents never get Delegate or ask_user, whatever
-  their mode says.
+  whatever Settings → Tools says. Sub-agents never get ask_user, whatever their mode
+  says; Delegate is off in the Sub-agent mode as it ships, and can be turned on.
 
 **Save** keeps the changes, **Revert** drops them, **Reset to default** puts a built-in
 mode back as it ships, and **Delete mode** removes one of yours (its chats go back to

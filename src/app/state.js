@@ -41,6 +41,17 @@ export const UI = {
 };
 
 export const chatById = (id) => S.chats.find((c) => c.id === id) || null;
+/* The chat the user started that a chat comes from: itself, or a sub-agent's (sub-agents
+ * may delegate in turn) its parents' first that isn't one; null once that is gone. */
+export function mainChatOf(c) {
+    for (let x = c, n = 0; x && n < 50; x = chatById(x.parent), n++) if (x.kind !== 'sub') return x;
+    return null;
+}
+/* True if chat x is a sub-agent's chat under c, at any depth. */
+export function descendsFrom(x, c) {
+    for (let p = chatById(x?.parent), n = 0; p && n < 50; p = chatById(p.parent), n++) if (p === c) return true;
+    return false;
+}
 export const anyRunning = () => [...S.sessions.values()].some((s) => s.running);
 
 /* ---- localStorage, which may not be there ------------------------------------ */

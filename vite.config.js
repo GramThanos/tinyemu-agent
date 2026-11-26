@@ -127,7 +127,7 @@ function tinyemuAgent() {
             for (const [name, file] of [
                 ['jsLab', join(DEPS, 'jsLab', 'LICENSE')], ['bash.js', join(DEPS, 'bash.js', 'LICENSE')],
                 ['react', mod('react')], ['react-dom', mod('react-dom')], ['scheduler', mod('scheduler')],
-                ['xterm', mod('@xterm/xterm')], ['xterm-addon-fit', mod('@xterm/addon-fit')],
+                ['xterm', mod('@xterm/xterm')], ['xterm-addon-fit', mod('@xterm/addon-fit')], ['showdown', mod('showdown')],
             ]) {
                 if (!existsSync(file)) this.error(`no ${file}: run git submodule update --init, and npm install`);
                 emit(`LICENSES/${name}.txt`, readFileSync(file));

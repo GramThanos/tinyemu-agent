@@ -8,7 +8,7 @@
  */
 
 import { useRef, useState } from 'react';
-import { ALL_TOOL_NAMES, ASK_TOOL, DELEGATE_TOOL } from '../../../js/tools.js';
+import { ALL_TOOL_NAMES, ASK_TOOL } from '../../../js/tools.js';
 import { isDefault } from '../../../js/modes.js';
 import { useTopics } from '../../app/store.js';
 import { S } from '../../app/state.js';
@@ -38,7 +38,7 @@ function ModeForm({ mode, onDone }) {
     const remove = () => { if (confirm(`Delete the mode ${mode.name}? Chats in it go back to Build.`)) { removeMode(mode); onDone(); } };
     const reset = () => { if (confirm(`Put ${mode.name} back as it ships? Your changes to it are lost.`)) { resetMode(mode); setM(structuredClone(modeById(mode.id))); } };
     const globallyOn = (name) => !settings.disabledTools.includes(name);
-    const never = (name) => mode.sub && (name === DELEGATE_TOOL || name === ASK_TOOL);
+    const never = (name) => mode.sub && name === ASK_TOOL;
     return (
         <div className="modeform">
             <label className="field"><span>Name</span><input value={m.name} maxLength={40} onChange={(e) => set({ name: e.target.value })} /></label>

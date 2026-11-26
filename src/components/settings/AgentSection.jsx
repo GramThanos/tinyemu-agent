@@ -30,6 +30,9 @@ export default function AgentSection() {
                     connection fails, before stopping <span className="hint">(0: keep trying until it is back or you stop it)</span></label>
                 <label>Give the model at most <NumberSetting k="toolOutputMax" size={8} step={1000} /> characters of one
                     tool result <span className="hint">(and never more than a quarter of the context window)</span></label>
+                <label><Check k="subAutoDelete" /> Delete a sub-agent&apos;s chat once it has finished its task
+                    <span className="hint">(its report stays in the Delegate call; chats of sub-agents that failed or were
+                    stopped stay)</span></label>
                 <label>Pause a VM nobody works in after <NumberSetting k="idlePauseMin" size={4} /> minutes
                     <span className="hint">(0: never. Its state is saved; the next tool call resumes it)</span></label>
             </div>

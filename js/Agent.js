@@ -32,7 +32,7 @@ import {
     COMPACT_PROMPT, compactedMessage, DEFAULT_CONTEXT_WINDOW, estimateTokens, isContextOverflow, renderTranscript,
 } from './compaction.js';
 import { pauses } from './pause.js';
-import { ASK_TOOL, DELEGATE_TOOL, limitToolOutput } from './tools.js';
+import { ASK_TOOL, limitToolOutput } from './tools.js';
 
 /* The built-in system prompt. {{VAR_ARCH}} and {{VAR_OS_NAME}} are filled in by
  * renderPrompt() with the running machine's processor and system, in the
@@ -61,6 +61,8 @@ export const SUBAGENT_PROMPT = subagentPrompt();
 
 export const MAX_STEPS = 100;
 export const SUBAGENT_MAX_STEPS = 50;
+/** How deep sub-agents may delegate in turn (when their mode gives them Delegate): 1 is a sub-agent. */
+export const SUBAGENT_MAX_DEPTH = 3;
 export const EMPTY_RETRIES = 2;     // an empty reply is asked for again this many times
 const EMPTY_RETRY_MS = 1000;
 /* No tool result may take more than this share of the context window. */
@@ -186,8 +188,12 @@ function chainHooks(a, b) {
 /**
  * The Delegate tool's runner, for createTools({ delegate }): forks the calling
  * agent's provider into a new conversation, runs the task with the caller's tools
- * less Delegate and ask_user (`tools` when the caller passes none) and resolves to
- * the sub-agent's final message: only that reaches the caller, never its steps.
+ * less ask_user (`tools` when the caller passes none) and resolves to the
+ * sub-agent's final message: only that reaches the caller, never its steps.
+ * Delegate stays unless `toolsFor` takes it out (the page's sub-agent mode does,
+ * by default). A sub-agent that delegates in turn goes one level deeper, up to
+ * `maxDepth`; while it waits for its own sub-agents it gives up its place among
+ * the `maxConcurrent`, which they would otherwise wait for for ever.
  *
  * Each sub-agent gets its own shell (tools.forShell), so its `cd` and variables
  * don't move the caller's. Its progress goes to the call's onOutput; its usage to
@@ -198,8 +204,8 @@ function chainHooks(a, b) {
  * is a prompt, or a function giving one when each sub-agent starts. `maxSteps`,
  * `maxConcurrent` (how many run at once; more wait for a turn) and
  * `toolOutputMax` are numbers or functions read when needed. `toolsFor(tools, ctx)`,
- * if given, adjusts a sub-agent's tools (a policy: tools.withPolicy) after Delegate
- * and ask_user are taken out, which it can't put back.
+ * if given, adjusts a sub-agent's tools (a policy: tools.withPolicy) after ask_user
+ * is taken out, which it can't put back.
  *
  * A turn that ends without a report (cut off at the output limit, out of steps,
  * an empty reply) is asked for one, without tools, up to WRAP_UP_TRIES times; an
@@ -219,27 +225,47 @@ function chainHooks(a, b) {
 export function createDelegate({
     tools, system = SUBAGENT_PROMPT, maxSteps = SUBAGENT_MAX_STEPS, maxConcurrent = 0, on = {}, context = {}, log = null,
     emptyRetries = EMPTY_RETRIES, toolOutputMax = null, view = null, networkRetryMs = NETWORK_RETRY_MS,
-    networkRetries = NETWORK_RETRIES, toolsFor = null,
+    networkRetries = NETWORK_RETRIES, toolsFor = null, maxDepth = SUBAGENT_MAX_DEPTH,
 }) {
     const running = slots(maxConcurrent);
     let count = 0;
+    // A sub-agent waiting for its own sub-agents lends them its place, and takes it
+    // back (waiting if need be) once the last of them is done.
+    const lend = (d) => { if (d.lent++ === 0 && d.held) { d.held = false; running.release(); } };
+    const takeBack = async (d) => {
+        if (--d.lent > 0 || d.held || d.over) return;
+        try { await running.acquire(d.signal); d.held = true; } catch { /* stopped: it ends anyway */ }
+    };
     const run = async ({ prompt, description }, ctx = {}, resume = null) => {
-        const { provider, signal, onOutput, agent: parent, callId, meta, tools: callerTools } = ctx;
+        const { provider, signal, onOutput, agent: parent, callId, meta, tools: callerTools, delegation: up = null } = ctx;
         if (!resume && !provider?.fork) throw new Error('This model connection cannot start a sub-agent.');
+        const depth = (up?.depth ?? 0) + 1;
+        const deepest = valueOf(maxDepth);
+        if (Number.isInteger(deepest) && deepest > 0 && depth > deepest) {
+            throw new Error(`Sub-agents can delegate only ${deepest} level${deepest === 1 ? '' : 's'} deep: do this task yourself.`);
+        }
         let lineStart = true;
         const out = (t) => { if (t) { lineStart = t.endsWith('\n'); onOutput?.(t); } };
         const line = (t) => out(`${lineStart ? '' : '\n'}${t}\n`);
 
-        if (!running.tryAcquire()) {
-            line('… waiting: as many sub-agents as Settings allow are running');
-            await running.acquire(signal);
-        }
+        const mine = { depth, held: false, lent: 0, over: false, signal };
+        if (up) lend(up);
         let v = {};
         let status = 'failed';
         let final = '';
         try {
+            if (!running.tryAcquire()) {
+                line('… waiting: as many sub-agents as Settings allow are running');
+                await running.acquire(signal);
+            }
+            mine.held = true;
+        } catch (e) {
+            if (up) await takeBack(up);
+            throw e;
+        }
+        try {
             // The caller's tools, so the shell starts where the caller's is.
-            const base = callerTools?.without ? callerTools.without(DELEGATE_TOOL, ASK_TOOL) : tools;
+            const base = callerTools?.without ? callerTools.without(ASK_TOOL) : tools;
             // A number no shell has yet: the count starts over after a reload, while
             // resumed sub-agents keep their shells.
             const taken = new Set((base.shells?.() || []).map((x) => x.name));
@@ -250,7 +276,7 @@ export function createDelegate({
             const subSystem = typeof system === 'function' ? system(ctx) : system;
             const shell = resume?.shell ?? `sub-agent-${n}`;
             const inShell = base.forShell ? base.forShell(shell) : base;
-            // The page's choice of tools for sub-agents (their mode's); never Delegate or ask_user.
+            // The page's choice of tools for sub-agents (their mode's); never ask_user.
             const subTools = toolsFor ? toolsFor(inShell, ctx) : inShell;
             const subProvider = resume?.provider ?? provider.fork({ system: subSystem, tools: subTools.defs });
             v = view?.({
@@ -283,6 +309,7 @@ export function createDelegate({
                 context,
                 task: prompt,
                 meta: v.meta ?? null,
+                delegation: mine,
                 toolOutputMax,
                 networkRetryMs,
                 networkRetries,
@@ -343,8 +370,10 @@ export function createDelegate({
             final = e.message;
             throw e;
         } finally {
-            running.release();
+            mine.over = true;
+            if (mine.held) { mine.held = false; running.release(); }
             try { v.done?.(status, final); } catch { /* the page's view never fails the call */ }
+            if (up) await takeBack(up);
         }
     };
     const delegate = (input, ctx) => run(input, ctx);
@@ -414,6 +443,8 @@ export class Agent {
      * @param {number|() => number} [opts.emptyRetries]  how often an empty reply is asked for again
      * @param {*} [opts.meta]        passed to every tool call as ctx.meta
      * @param {string} [opts.task]    a sub-agent's task, repeated after each compaction
+     * @param {object} [opts.delegation]  a sub-agent's place among createDelegate's
+     *                                (its depth), passed to its tool calls as ctx.delegation
      * @param {number|() => number} [opts.toolOutputMax]  characters of one tool result the
      *                                model gets (also capped at a quarter of the window)
      * @param {number[]} [opts.networkRetryMs]  waits between asks while the model can't be
@@ -424,8 +455,9 @@ export class Agent {
     constructor({
         provider, tools, on = {}, maxSteps = MAX_STEPS, context = {}, system = null, name = 'main', log = null,
         emptyRetries = EMPTY_RETRIES, meta = null, task = null, toolOutputMax = null, networkRetryMs = NETWORK_RETRY_MS,
-        networkRetries = NETWORK_RETRIES,
+        networkRetries = NETWORK_RETRIES, delegation = null,
     }) {
+        this.delegation = delegation;
         this.networkRetryMs = networkRetryMs;   // waits after network failures (tests shorten them)
         this.networkRetries = networkRetries;   // how many in a row, read when needed; 0: no limit
         this.provider = provider;
@@ -699,7 +731,8 @@ export class Agent {
                     agent: this.name,
                     callId: call.id,
                     meta: this.meta,
-                    tools,      // Delegate gives its sub-agent these, less itself
+                    tools,      // Delegate gives its sub-agent these, less ask_user
+                    delegation: this.delegation,   // a sub-agent's depth, if it delegates in turn
                     out,        // the tool's report for the log: where it ran, the guest's health
                 };
                 const work = run ? run(call, ctx) : tools.run(call.name, call.input, ctx);
