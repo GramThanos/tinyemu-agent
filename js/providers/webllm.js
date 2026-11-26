@@ -38,6 +38,20 @@ export class WebLLMProvider {
         // The engine is loaded with this window, and a reply needs room in it too.
         this.contextWindow = CONTEXT_WINDOW;
         this.maxOutput = MAX_TOKENS;
+        this.temperature = 0.2;
+        this.tuning = {};
+    }
+
+    /**
+     * The user's settings for this model (Settings → Models): { contextWindow,
+     * maxOutput, temperature, windowSet }. The window applies when the engine loads
+     * (the next load of this model); the others from the next reply.
+     */
+    setTuning(t = {}) {
+        this.tuning = { ...t };
+        if (!this.engine) this.contextWindow = Number.isInteger(t.contextWindow) ? t.contextWindow : CONTEXT_WINDOW;
+        this.maxOutput = Number.isInteger(t.maxOutput) ? t.maxOutput : MAX_TOKENS;
+        this.temperature = Number.isFinite(t.temperature) ? t.temperature : 0.2;
     }
 
     /** The history as plain entries, for a compaction summary. Tool results come
@@ -74,11 +88,11 @@ export class WebLLMProvider {
 
     async load() {
         if (!(await hasWebGPU())) throw new Error('No usable WebGPU adapter here, which in-browser models need.');
-        const { CreateMLCEngine } = await import(WEBLLM_URL);
+        const { CreateMLCEngine } = await import(/* @vite-ignore */ WEBLLM_URL);
         this.engine = await CreateMLCEngine(
             this.model,
             { initProgressCallback: (p) => this.onProgress?.(p.text) },
-            { context_window_size: CONTEXT_WINDOW },
+            { context_window_size: this.contextWindow },
         );
     }
 
@@ -86,6 +100,8 @@ export class WebLLMProvider {
      * engine would load the weights again. */
     fork({ system, tools }) {
         const p = new WebLLMProvider({ model: this.model, system, tools });
+        p.setTuning(this.tuning);
+        p.contextWindow = this.contextWindow;   // the loaded engine's
         p.engine = this.engine;
         return p;
     }
@@ -128,8 +144,8 @@ export class WebLLMProvider {
             messages: this.messages,
             stream: true,
             stream_options: { include_usage: true },
-            temperature: 0.2,
-            max_tokens: MAX_TOKENS,
+            temperature: this.temperature,
+            max_tokens: this.maxOutput,
         });
 
         const filter = new VisibleTextFilter(onText);

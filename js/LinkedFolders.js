@@ -318,12 +318,25 @@ export class LinkedFolders {
         return diskSig(await fh.getFile());
     }
 
-    async _deleteDisk(link, rel) {
+    /* Delete one file or one empty folder on disk; false if it was left alone. The
+     * disk changes while a pass runs: a file is deleted only if it is still the one
+     * the pass looked at (`sig`), and a folder only if it is empty (never
+     * recursively), so whatever the user saved meanwhile stays, and the next pass
+     * copies it in. */
+    async _deleteDisk(link, rel, sig = null) {
         try {
             const dir = await this._diskDir(link.handle, relParent(rel), false);
-            await dir.removeEntry(baseOf(rel), { recursive: true });
+            if (sig !== null) {
+                const file = await (await dir.getFileHandle(baseOf(rel))).getFile();
+                if (diskSig(file) !== sig) return false;
+            }
+            await dir.removeEntry(baseOf(rel));
+            return true;
         } catch (e) {
-            if (e?.name !== 'NotFoundError') throw e;
+            if (e?.name === 'NotFoundError') return true;
+            // Not empty, or no longer a file: leave it.
+            if (e?.name === 'InvalidModificationError' || e?.name === 'TypeMismatchError') return false;
+            throw e;
         }
     }
 
@@ -365,9 +378,9 @@ export class LinkedFolders {
         // the middle of it; its files would then read as deleted one by one.
         // Checked again before anything is deleted on disk.
         const stillLinked = async () => this.links.includes(link) && (await this._wsEntry(link.path))?.ino === link.rootIno;
-        const deleteDisk = async (rel) => {
+        const deleteDisk = async (rel, sig = null) => {
             if (!(await stillLinked())) throw new LinkError('the folder was removed from the workspace during the sync');
-            await this._deleteDisk(link, rel);
+            return this._deleteDisk(link, rel, sig);
         };
         const done = { pulled: 0, pushed: 0, deletedDisk: [], deletedWs: 0, conflicts: [] };
         let touched = false;   // the baseline changed without a copy (read-only bookkeeping)
@@ -465,7 +478,9 @@ export class LinkedFolders {
                 else delete base[rel];
             } else if (wChanged && !dChanged) {
                 if (w) await push();
-                else { if (d) { await deleteDisk(rel); diskFiles.delete(rel); done.deletedDisk.push(rel); } delete base[rel]; }
+                else if (!d) delete base[rel];
+                else if (await deleteDisk(rel, diskSig(d))) { diskFiles.delete(rel); done.deletedDisk.push(rel); delete base[rel]; }
+                // else it changed on disk since the scan: the baseline stays, so the next pass copies the change in.
             } else if (d && w) {
                 if (dHash === wHash) base[rel] = { d: diskSig(d), w: wsSig(w), h: dHash };
                 else await conflict();
@@ -497,7 +512,7 @@ export class LinkedFolders {
             }
             if (inD) {
                 if (was && !holds(diskFiles, diskDirs, rel)) {
-                    await deleteDisk(rel); diskDirs.delete(rel); delete base[rel]; done.deletedDisk.push(`${rel}/`);
+                    if (await deleteDisk(rel)) { diskDirs.delete(rel); delete base[rel]; done.deletedDisk.push(`${rel}/`); }
                 } else {
                     await this.vm.volumeMkdir(this.volume, `${link.path}/${rel}`); wsDirs.add(rel); base[rel] = { dir: true };
                 }

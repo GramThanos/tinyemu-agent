@@ -20,14 +20,13 @@ is from commit {{commit}}; `build-info.json` has the details. To make one
 yourself, in a checkout (`git clone --recursive`):
 
 ```bash
-node scripts/build.mjs --out _site
+npm ci
+npm run build
 ```
 
 | Path | What |
 |------|------|
-| `index.html`, `js/` | The page |
-| `engine/` | jsLab's browser runtime |
-| `vendor/bash.js` | bash.js, the bash interpreter the page can run commands in |
+| `index.html`, `assets/` | The page, bundled: its code with React, jsLab's browser runtime, bash.js (the bash interpreter the page can run commands in) and xterm.js |
 
 The emulator and the systems aren't here: the page loads TinyEMU's WebAssembly
 engine ({{engine}}) from [TinyEMU's Pages](https://gramthanos.github.io/TinyEMU/),
@@ -40,7 +39,7 @@ needs a hard reload (Ctrl+Shift+R).
 ## Licences
 
 The page is GPL-3.0-or-later ([LICENSE](LICENSE)), as is jsLab's runtime in
-`engine/`; bash.js is MIT (`LICENSES/` has each part's licence), and so is TinyEMU's
+it; bash.js, React and xterm.js are MIT (`LICENSES/` has each part's licence), and so is TinyEMU's
 emulator, loaded from its own site. The guest systems are none of these: each is a
 TinyEMU-distros build whose Linux kernel is GPL-2.0 (as are Alpine's BusyBox and
 much of Debian's userland), and whose other packages carry their own licences; the

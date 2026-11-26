@@ -13,7 +13,7 @@ import { join } from 'node:path';
 
 import {
     createTools, expandBraces, formatLines, globMatcher, shellEnv, shQuote, withUserEnv, truncateOutput, validateInput, TOOL_DEFS,
-    ASK_TOOL, askQuestions, formatAnswers, limitToolOutput, resolveToolName,
+    ASK_TOOL, askQuestions, formatAnswers, lastLines, limitToolOutput, resolveToolName,
 } from '../js/tools.js';
 import { pauses } from '../js/pause.js';
 import { PERIOD_S, toneSamples } from '../js/keepAwake.js';
@@ -25,9 +25,9 @@ import { parseHealth } from '../js/GuestBridge.js';
 import { createJsBash } from '../js/bashjs.js';
 import { parseToolCalls, stripThinking, VisibleTextFilter } from '../js/providers/toolProtocol.js';
 import { WebLLMProvider } from '../js/providers/webllm.js';
-import { listOpenAIModels, OpenAICompatProvider, openAIUsage } from '../js/providers/openai.js';
+import { apiError, listOpenAIModels, mergeCall, OpenAICompatProvider, openAIUsage } from '../js/providers/openai.js';
 import {
-    Agent, createDelegate, INTERRUPTED, isNetworkError, NETWORK_RETRY_MS, networkRetryDelay,
+    Agent, createDelegate, INTERRUPTED, isNetworkError, NETWORK_RETRIES, NETWORK_RETRY_MS, networkRetryDelay,
     renderPrompt, subagentPrompt, SUBAGENT_PROMPT, SYSTEM_PROMPT } from '../js/Agent.js';
 import { DELEGATE_TOOL } from '../js/tools.js';
 import { LinkedFolders } from '../js/LinkedFolders.js';
@@ -930,7 +930,12 @@ class FakeDir {
         if (!c) { if (!create) throw notFound(); c = new FakeFile(n); this.children.set(n, c); }
         return c;
     }
-    async removeEntry(n) { if (!this.children.delete(n)) throw notFound(); }
+    async removeEntry(n, { recursive = false } = {}) {
+        const c = this.children.get(n);
+        if (!c) throw notFound();
+        if (c.kind === 'directory' && c.children.size && !recursive) throw Object.assign(new Error('not empty'), { name: 'InvalidModificationError' });
+        this.children.delete(n);
+    }
     async isSameEntry(o) { return o === this; }
     at(path) { return path.split('/').reduce((d, p) => d?.children.get(p), this); }
     /** Every file as { 'a/b.txt': text }, for comparing. */
@@ -2436,6 +2441,112 @@ await test('distroLabel names a distro and its processor', () => {
     assert.equal(distroLabel('alpine-3.20-x86', 'x86'), 'Alpine 3.20 (x86)');
     assert.equal(distroLabel('debian-13-riscv64-lite', 'riscv64'), 'Debian 13 lite (riscv64)');
     assert.equal(distroLabel('x86', 'x86'), 'x86');
+});
+
+await test('a turn gives up after networkRetries failures in a row; 0 keeps trying', async () => {
+    let count = 0;
+    const p1 = scripted([]);
+    p1.step = async () => { count++; throw new TypeError('Failed to fetch'); };
+    const logged = [];
+    const agent = new Agent({ provider: p1, tools, networkRetryMs: [1], networkRetries: () => 3, log: (e) => logged.push(e) });
+    await assert.rejects(agent.send('go'), /gave up after 3 tries/);
+    assert.equal(count, 4);   // the first ask, then three more
+    assert.ok(logged.some((e) => e.type === 'error' && e.gaveUp));
+    assert.equal(NETWORK_RETRIES, 15);
+    // 0: no limit, until the connection is back.
+    const p2 = scripted([]);
+    let k = 0;
+    p2.step = async ({ onText }) => { if (k++ < 30) throw new TypeError('Failed to fetch'); onText('ok'); return { stop: 'end' }; };
+    assert.equal((await new Agent({ provider: p2, tools, networkRetryMs: [0], networkRetries: 0 }).send('go')).stop, 'end');
+    assert.equal(k, 31);
+});
+
+await test('an HTTP error answer is not taken for a network failure', () => {
+    const e = apiError(504, '{"error":{"message":"upstream request timed out"}}');
+    assert.equal(e.status, 504);
+    assert.match(e.message, /API error 504: upstream request timed out/);
+    assert.equal(isNetworkError(e), false);
+});
+
+await test('lastLines keeps the end of long output', () => {
+    assert.deepEqual(lastLines('a\nb\nc\n', 0), { text: 'a\nb\nc\n', total: null });
+    assert.deepEqual(lastLines('a\nb\nc\n', 3), { text: 'a\nb\nc\n', total: null });
+    assert.deepEqual(lastLines('a\nb\nc\n', 2), { text: 'b\nc\n', total: 3 });
+    assert.deepEqual(lastLines('a\nb\nc', 1), { text: 'c', total: 3 });
+});
+
+await test('Bash gives the model only the last bashKeepLines lines, and says so', async () => {
+    const t = createTools(new LocalBridge(work), { cwd: rootSh, bashKeepLines: () => 3 });
+    let r = await t.run('Bash', { command: 'for i in 1 2 3 4 5 6 7 8 9 10; do echo line$i; done' });
+    assert.equal(r.isError, false);
+    assert.match(r.content, /^line8\nline9\nline10\n\[Showing the last 3 of 10 lines of output/);
+    r = await t.run('Bash', { command: 'echo short' });
+    assert.equal(r.content, 'short\n');
+    // A bridge that cut the output itself (the guest's out.tail) says how many lines there were.
+    const cut = { exec: async () => ({ rc: 0, out: new TextEncoder().encode('y\nz\n'), outLines: 500, cwd: null, files: {} }) };
+    r = await createTools(cut, { bashKeepLines: () => 2 }).run('Bash', { command: 'seq 500' });
+    assert.match(r.content, /^y\nz\n\[Showing the last 2 of 500 lines/);
+});
+
+await test('the guest job keeps the last lines of a long output in out.tail', () => {
+    // The step GuestBridge's JOB runs after the command, on a real sh.
+    const dir = join(work, 'keep');
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'out'), Array.from({ length: 10 }, (_, i) => `l${i + 1}\n`).join(''));
+    writeFileSync(join(dir, 'keep'), '4');
+    const step = 'D=$1; if [ -s "$D/keep" ]; then k=$(cat "$D/keep"); n=$(wc -l <"$D/out" 2>/dev/null || echo 0); '
+        + 'if [ "$n" -gt "$k" ] 2>/dev/null; then tail -n "$k" "$D/out" >"$D/out.tail"; echo "$n" >"$D/out.lines"; fi; fi';
+    spawnSync(SH, ['-c', step, 'sh', shPath(dir)]);
+    assert.equal(readFileSync(join(dir, 'out.tail'), 'utf8'), 'l7\nl8\nl9\nl10\n');
+    assert.equal(readFileSync(join(dir, 'out.lines'), 'utf8').trim(), '10');
+});
+
+await test('a new sub-agent never takes a shell that already exists', async () => {
+    let delegate;
+    const t = createTools(new LocalBridge(work), { cwd: rootSh, delegate: (i, c) => delegate(i, c) });
+    // As after a reload: resumed sub-agents already have sub-agent-1 and sub-agent-2.
+    t.forShell('sub-agent-1');
+    t.forShell('sub-agent-2');
+    const shells = [];
+    delegate = createDelegate({ tools: t.without(DELEGATE_TOOL), view: (info) => { shells.push(info.shell); return {}; } });
+    const parent = scripted([]);
+    parent.fork = () => scripted([{ stop: 'end', text: 'done' }]);
+    await delegate({ prompt: 'p', description: 'd' }, { provider: parent, tools: t });
+    assert.deepEqual(shells, ['sub-agent-3']);
+});
+
+await test('streamed tool names: repeats, pieces and a name re-sent whole', () => {
+    const known = new Set(['Bash', 'aa', 'Read']);
+    const merge = (deltas, k = known) => { const c = {}; for (const d of deltas) mergeCall(c, d, k); return c.function.name; };
+    assert.equal(merge([{ function: { name: 'Bash' } }, { function: { name: 'Bash', arguments: '{}' } }]), 'Bash');
+    assert.equal(merge([{ function: { name: 'a' } }, { function: { name: 'a' } }]), 'aa');
+    assert.equal(merge([{ function: { name: 'Re' } }, { function: { name: 'ad' } }]), 'Read');
+    assert.equal(merge([{ function: { name: 'Ba' } }, { function: { name: 'Bash' } }]), 'Bash');
+    // Without a tool list, a repeat stays a repeat (as before).
+    assert.equal(merge([{ function: { name: 'Bash' } }, { function: { name: 'Bash' } }], null), 'Bash');
+});
+
+await test('a deletion on disk spares what changed there since the scan', async () => {
+    const { vm, disk, links } = await linked({ 'a.txt': 'alpha', d: { 'x.txt': 'x' } });
+    await links.link(disk, '/work');
+    // Deleted in the workspace, the file and the whole folder...
+    vm.store.removePath('/work/proj/a.txt');
+    vm.store.removePath('/work/proj/d');
+    // ...while on disk, after the pass looked, a.txt is edited and d gets a new file.
+    const scan = links._scanDisk.bind(links);
+    links._scanDisk = async (h) => {
+        const r = await scan(h);
+        disk.at('a.txt').set('edited');
+        (await disk.at('d').getFileHandle('new.txt', { create: true })).set('new');
+        return r;
+    };
+    await links.sync();
+    links._scanDisk = scan;
+    assert.deepEqual(disk.dump(), { 'a.txt': 'edited', 'd/': '', 'd/new.txt': 'new' });
+    // The next pass brings both back into the workspace.
+    await links.sync();
+    assert.deepEqual(wsDump(vm, '/work/proj'), { 'a.txt': 'edited', 'd/': '', 'd/new.txt': 'new' });
+    assert.deepEqual(disk.dump(), { 'a.txt': 'edited', 'd/': '', 'd/new.txt': 'new' });
 });
 
 rmSync(base, { recursive: true, force: true });

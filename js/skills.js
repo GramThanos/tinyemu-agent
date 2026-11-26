@@ -19,6 +19,8 @@
 
 'use strict';
 
+import { Fs9pStore } from '../deps/jsLab/lib/volumes/Fs9pStore.js';
+
 export const SKILLS_VOLUME = 'skills';
 export const SKILLS_DIR = '/agent/skills';
 export const SKILLS_STORAGE_KEY = 'tinyemu-agent-skills';
@@ -163,7 +165,6 @@ export class SkillLibrary {
     /** Read the skills saved in this browser, without a VM. */
     async loadSaved() {
         try {
-            const { Fs9pStore } = await import('../deps/jsLab/lib/volumes/Fs9pStore.js');
             this._store = await Fs9pStore.fromSpec({ name: SKILLS_VOLUME, backend: 'indexeddb', storageKey: SKILLS_STORAGE_KEY });
             // Only read from here on; the VM's worker owns writing the volume.
             await this._store.backend.close();

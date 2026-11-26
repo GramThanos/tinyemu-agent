@@ -1,9 +1,10 @@
 # Build the agent and deploy it to GitHub Pages. Run by hand: Actions -> deploy
 # -> Run workflow.
 #
-# The site is only the page, jsLab's runtime and bash.js. The engine and the
-# guest images aren't copied: the page loads them from TinyEMU's and
-# TinyEMU-distros' GitHub Pages (js/distros.js names the engine release).
+# The site is the page, bundled by Vite (vite.config.js): React, the agent's
+# modules, jsLab's runtime and bash.js. The engine and the guest images aren't
+# copied: the page loads them from TinyEMU's and TinyEMU-distros' GitHub Pages
+# (js/distros.js names the engine release).
 #
 # One-time setup: Settings -> Pages -> Source: "GitHub Actions".
 name: deploy
@@ -33,12 +34,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
+      - run: npm ci
       - name: Tests
-        run: node --test "tests/*.test.mjs"
+        run: npm test
       - name: Build the site
-        run: node scripts/build.mjs --out _site
+        run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
+          path: dist
       - id: deployment
         uses: actions/deploy-pages@v4

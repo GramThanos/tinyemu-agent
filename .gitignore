@@ -1,4 +1,5 @@
-# Build output (scripts/build.mjs --out _site)
+# Build output (npm run build)
+/dist/
 /_site/
 
 node_modules/

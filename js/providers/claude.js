@@ -15,7 +15,7 @@ const MAX_JSON_RETRIES = 2;
 /** The models this key can use, newest first, as [{ id, label, contextWindow }].
  * The context window is the API's max_input_tokens, where it reports one. */
 export async function listClaudeModels({ apiKey, baseURL, signal }) {
-    const { default: Anthropic } = await import(SDK_URL);
+    const { default: Anthropic } = await import(/* @vite-ignore */ SDK_URL);
     const client = new Anthropic({ apiKey, baseURL: baseURL || undefined, dangerouslyAllowBrowser: true });
     const models = [];
     try {
@@ -29,7 +29,7 @@ export async function listClaudeModels({ apiKey, baseURL, signal }) {
     } catch (e) {
         // The SDK's message is the raw response body; keep just the API's words.
         const message = e?.error?.error?.message;
-        throw message ? new Error(`API error ${e.status}: ${message}`) : e;
+        throw message ? Object.assign(new Error(`API error ${e.status}: ${message}`), { status: e.status }) : e;
     }
     return models;
 }
@@ -54,6 +54,7 @@ export class ClaudeProvider {
         this.effort = effort;
         this.contextWindow = contextWindow;   // tokens, or null if the API didn't say
         this.maxOutput = MAX_TOKENS;
+        this.tuning = {};
         this.setTools(tools);
         this.messages = [];
         this.Anthropic = null;
@@ -70,7 +71,7 @@ export class ClaudeProvider {
     }
 
     async load() {
-        const { default: Anthropic } = await import(SDK_URL);
+        const { default: Anthropic } = await import(/* @vite-ignore */ SDK_URL);
         this.Anthropic = Anthropic;
         const limits = this.limits;
         this.client = new Anthropic({
@@ -90,12 +91,24 @@ export class ClaudeProvider {
     /** Applies from the next request. A change mid-conversation costs a cache miss. */
     setEffort(effort) { this.effort = effort; }
 
+    /**
+     * The user's settings for this model (Settings → Models), from the next request:
+     * { contextWindow, maxOutput, windowSet }. null keeps the listed window and
+     * MAX_TOKENS. Temperature isn't sent: Claude refuses it with thinking on.
+     */
+    setTuning(t = {}) {
+        this.tuning = { ...t };
+        if (Number.isInteger(t.contextWindow)) this.contextWindow = t.contextWindow;
+        this.maxOutput = Number.isInteger(t.maxOutput) ? t.maxOutput : MAX_TOKENS;
+    }
+
     /** A new conversation with the same model and client, for a sub-agent or a compaction. */
     fork({ system, tools }) {
         const p = new ClaudeProvider({
             apiKey: this.apiKey, model: this.model, system, tools, baseURL: this.baseURL, effort: this.effort,
             contextWindow: this.contextWindow,
         });
+        p.setTuning(this.tuning);
         p.Anthropic = this.Anthropic;
         p.client = this.client;
         p.limits = this.limits;
@@ -162,7 +175,7 @@ export class ClaudeProvider {
         for (let jsonRetries = 0; ;) {
             const stream = this.client.beta.messages.stream({
                 model: this.model,
-                max_tokens: MAX_TOKENS,
+                max_tokens: this.maxOutput,
                 system: this.system,
                 ...(this.tools.length ? { tools: this.tools } : {}),
                 messages: this.messages,

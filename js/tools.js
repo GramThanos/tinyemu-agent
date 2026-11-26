@@ -268,8 +268,72 @@ export function formatAnswers(questions, reply) {
     return `The user answered:\n${lines.join('\n')}`;
 }
 
+/* ---- the agent's own to-do list ------------------------------------------------ */
+
+export const TODO_WRITE = 'TodoWrite';
+export const TODO_READ = 'TodoRead';
+export const TODO_STATUSES = ['pending', 'in_progress', 'completed'];
+const TODO_MAX = 50;
+const TODO_TEXT_MAX = 300;
+
+/* Offered when createTools() gets `todos` ({ get(ctx), set(ctx, list) }): a list
+ * kept by the page for the agent that calls (each sub-agent has its own), shown to
+ * the user, with no file in the workspace. */
+export const TODO_WRITE_DEF = {
+    name: TODO_WRITE,
+    description: 'Replaces your to-do list for this task with the one given, which the user sees as you work. Use it for work of three or more steps: list the steps, keep exactly one in_progress while you work on it, mark each completed as soon as it is done, and add steps you discover. Send the whole list each time. Not needed for a single quick step.',
+    input_schema: {
+        type: 'object',
+        properties: {
+            todos: {
+                type: 'array',
+                description: 'The whole list, in order.',
+                items: {
+                    type: 'object',
+                    properties: {
+                        content: { type: 'string', description: 'What the step is, imperative ("Run the tests").' },
+                        status: { type: 'string', enum: TODO_STATUSES, description: 'pending, in_progress or completed.' },
+                    },
+                    required: ['content', 'status'],
+                },
+            },
+        },
+        required: ['todos'],
+    },
+};
+export const TODO_READ_DEF = {
+    name: TODO_READ,
+    description: 'Returns your current to-do list (as last set with TodoWrite), to check where you are.',
+    input_schema: { type: 'object', properties: {} },
+};
+
+/**
+ * A TodoWrite input as the list to keep: [{ content, status }].
+ * @throws {ToolError} what is wrong with it
+ */
+export function todoList(input) {
+    const list = input?.todos;
+    if (!Array.isArray(list)) throw new ToolError('Give "todos": the whole list, as [{ content, status }].');
+    if (list.length > TODO_MAX) throw new ToolError(`Keep the list to ${TODO_MAX} steps or fewer.`);
+    return list.map((x, i) => {
+        if (!x || typeof x !== 'object') throw new ToolError(`Step ${i + 1} must be an object.`);
+        const content = typeof x.content === 'string' ? x.content.trim().replace(/\s+/g, ' ').slice(0, TODO_TEXT_MAX) : '';
+        if (!content) throw new ToolError(`Step ${i + 1} has no "content".`);
+        if (!TODO_STATUSES.includes(x.status)) throw new ToolError(`Step ${i + 1}: "status" must be one of ${TODO_STATUSES.join(', ')}.`);
+        return { content, status: x.status };
+    });
+}
+
+/** The list as the model reads it back. */
+export function formatTodos(list) {
+    if (!list?.length) return 'The to-do list is empty.';
+    const mark = { pending: '[ ]', in_progress: '[~]', completed: '[x]' };
+    const done = list.filter((x) => x.status === 'completed').length;
+    return `To-do list (${done} of ${list.length} done):\n${list.map((x, i) => `${i + 1}. ${mark[x.status]} ${x.content}`).join('\n')}`;
+}
+
 /** Every tool name the page can offer, for settings. */
-export const ALL_TOOL_NAMES = [...TOOL_DEFS.map((d) => d.name), SKILL_TOOL, DELEGATE_TOOL, ASK_TOOL];
+export const ALL_TOOL_NAMES = [...TOOL_DEFS.map((d) => d.name), SKILL_TOOL, DELEGATE_TOOL, ASK_TOOL, TODO_WRITE, TODO_READ];
 
 /* Names compared without case or separators: bash, BASH, Ask-User, askUser. */
 const nameKey = (name) => String(name ?? '').toLowerCase().replace(/[\s_-]+/g, '');
@@ -404,6 +468,21 @@ export function shellEnv(text) {
         .join('\n').replace(/\n*$/, '\n');
 }
 
+/**
+ * The last `keep` lines of `text` (0: all). @returns {{ text:string, total:number|null }}
+ * total: how many lines it had, if any were left out.
+ */
+export function lastLines(text, keep) {
+    if (!(keep > 0)) return { text, total: null };
+    const lines = text.split('\n');
+    const n = lines.length - (lines[lines.length - 1] === '' ? 1 : 0);
+    if (n <= keep) return { text, total: null };
+    return { text: lines.slice(n - keep).join('\n'), total: n };
+}
+
+const keptNote = (total, keep) => `Showing the last ${keep.toLocaleString()} of ${total.toLocaleString()} lines of output `
+    + '(Settings → Tools); for the rest, send the output into a file and read it in parts.';
+
 /** A valid environment variable name. */
 export const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -425,6 +504,7 @@ export function withUserEnv(shellScript, vars, managed) {
 }
 
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write']);
+const TODO_TOOLS = new Set([TODO_WRITE, TODO_READ]);
 
 /**
  * Bind the tools to a bridge.
@@ -458,19 +538,32 @@ const FILE_TOOLS = new Set(['Read', 'Edit', 'Write']);
  * volume operations. A path it doesn't route goes to the guest as before.
  *
  * `bashTimeoutMs()` is Bash's default timeout, read at each call and in its
- * description.
+ * description. `bashKeepLines()` is how many of a command's last output lines the
+ * model gets (0: all, up to the output cap); read at each call.
  *
  * `sync()`, if given, is awaited before and after every call that touches the VM
  * (linked folders are brought up to date then); its failures are ignored.
  *
  * `env()` gives the user's environment variables (name -> value), read at each
  * Bash call and set in every shell after its own exports (see withUserEnv).
+ *
+ * `todos` ({ get(ctx), set(ctx, list) }) adds TodoWrite and TodoRead: the caller's
+ * to-do list, kept by the page per agent (ctx.meta says whose).
+ *
+ * A view's `withPolicy(fn)` decides per tool for that view: fn(name) true (on),
+ * false (off) or undefined (as `isEnabled` says). A chat's mode uses it.
  * @param {{exec:Function}|Promise<{exec:Function}>} bridgeOrPromise
  */
 export function createTools(bridgeOrPromise, {
     cwd = DEFAULT_CWD, readyTimeoutMs = READY_TIMEOUT_MS, skills = null, delegate = null, ask = null, isEnabled = () => true,
-    sync = null, files = null, bashTimeoutMs = () => BASH_DEFAULT_MS, env = () => ({}), jsBash = () => null,
+    sync = null, files = null, bashTimeoutMs = () => BASH_DEFAULT_MS, bashKeepLines = () => 0, env = () => ({}), jsBash = () => null,
+    extraTools = () => [], todos = null,
 } = {}) {
+    /* Tools from outside (MCP servers): [{ name, def, run(input, ctx), check?(input), via? }],
+     * read at each use. They need no VM and aren't ordered per file. */
+    const extras = () => { try { return extraTools() || []; } catch { return []; } };
+    const extraOf = (name) => extras().find((x) => x.name === name) || null;
+    const allNames = () => [...ALL_TOOL_NAMES, ...extras().map((x) => x.name)];
     /* The bash.js runner (js/bashjs.js) when Settings sends Bash there, else null. */
     const jsShell = () => { try { return jsBash() || null; } catch { return null; } };
     const syncQuietly = async () => { try { await sync?.(); } catch { /* the call still runs */ } };
@@ -495,15 +588,23 @@ export function createTools(bridgeOrPromise, {
     };
     shellOf(DEFAULT_SHELL);
 
+    const keepLines = () => {
+        let n = 0;
+        try { n = bashKeepLines(); } catch { /* all */ }
+        return Number.isInteger(n) && n > 0 ? n : 0;
+    };
+
     const defaultTimeout = () => {
         const n = bashTimeoutMs();
         return Number.isInteger(n) && n >= 1000 ? Math.min(n, BASH_MAX_MS) : BASH_DEFAULT_MS;
     };
-    const defs = () => {
+    /* Every tool these can offer, before anyone's choice of which (isEnabled, a view's policy). */
+    const allDefs = () => {
         // Only the skills the user has left on (a SkillLibrary has enabled()).
         const skill = skills && skillToolDef(skills.enabled ? skills.enabled() : skills.list());
         const base = TOOL_DEFS.map((d) => (d.name === 'Bash' ? (jsShell() ? bashJsDef : bashDef)(defaultTimeout()) : d));
-        return [...base, skill, delegate && DELEGATE_DEF, ask && ASK_DEF].filter((d) => d && isEnabled(d.name));
+        return [...base, skill, delegate && DELEGATE_DEF, ask && ASK_DEF, todos && TODO_WRITE_DEF, todos && TODO_READ_DEF,
+            ...extras().map((x) => x.def)].filter(Boolean);
     };
     let bridge = null;
     let bootError = null;
@@ -719,8 +820,10 @@ exit 0`,
                 const r = await js.run({ command, shell: sh.name, cwd: sh.cwd, env: userEnv(), timeoutMs, signal, onOutput });
                 const moved = !!r.cwd && r.cwd !== sh.cwd;
                 if (moved) sh.cwd = r.cwd;
-                let text = r.out;
+                const kept = lastLines(r.out || '', keepLines());
+                let text = kept.text;
                 const notes = [];
+                if (kept.total) notes.push(keptNote(kept.total, keepLines()));
                 if (r.aborted) notes.push('Stopped by the user.');
                 else if (r.timedOut) notes.push(`Timed out after ${Math.round(timeoutMs / 1000)} s.`);
                 else if (r.rc !== 0) notes.push(`Exit code ${r.rc}.`);
@@ -757,6 +860,7 @@ echo "$! $J"`,
                 outputs: ['env.after'],
                 signal,
                 onOutput: onOutput && ((chunk) => onOutput(streamDec.decode(chunk, { stream: true }))),
+                keepLines: keepLines(),
             });
             if (out) out.health = r.health ?? null;   // for the page's statistics
             // Only a real change counts: a parallel call that didn't cd or export
@@ -770,8 +874,12 @@ echo "$! $J"`,
                 else sh.env ??= next;
             }
             // Long output is cut by the agent (limitToolOutput), like every tool's result.
-            let text = DEC.decode(r.out);
+            // The guest cut a long output to its last lines (r.outLines: how many it had);
+            // a bridge that doesn't is cut here.
+            const kept = r.outLines ? { text: DEC.decode(r.out), total: r.outLines } : lastLines(DEC.decode(r.out), keepLines());
+            let text = kept.text;
             const notes = [];
+            if (kept.total) notes.push(keptNote(kept.total, keepLines()));
             if (r.aborted) notes.push('Stopped by the user.');
             else if (r.timedOut) notes.push(`Timed out after ${Math.round(timeoutMs / 1000)} s and was killed.`);
             else if (r.overflow) notes.push('Killed: the command produced too much output.');
@@ -789,9 +897,21 @@ echo "$! $J"`,
     });
 
     /* One call, in the shell `sh` (the caller's own). */
-    async function runTool(name, input, ctx, sh) {
-        const def = defs().find((d) => d.name === name);
+    async function runTool(name, input, ctx, sh, allowed) {
+        const def = allDefs().find((d) => d.name === name && allowed(d.name));
         if (!def) return notOffered(name);
+        const extra = extraOf(name);
+        if (extra) {
+            const problem = extra.check ? extra.check(input) : validateInput(def.input_schema, input);
+            if (problem) return { content: `Invalid input: ${problem}.`, isError: true };
+            if (ctx.out) ctx.out.via = extra.via || 'page';
+            try {
+                const r = await extra.run(input, ctx);
+                return { content: String(r?.content ?? ''), isError: !!r?.isError };
+            } catch (e) {
+                return { content: `Tool failed: ${e.message}`, isError: true };
+            }
+        }
         // The single-question form some models write: one entry of the batch.
         if (name === ASK_TOOL && input && typeof input === 'object' && !input.questions && typeof input.question === 'string') {
             input = { questions: [{ id: 'answer', ...input }] };
@@ -803,7 +923,7 @@ echo "$! $J"`,
         // (a sub-agent); a Bash call adds the guest's health (GuestBridge.parseHealth).
         const served = FILE_TOOLS.has(name) && route(abs(input.path, sh));
         const inPage = served || name === SKILL_TOOL || (name === 'Bash' && jsShell() && !input.run_in_background);
-        if (ctx.out) ctx.out.via = name === ASK_TOOL ? 'user' : name === DELEGATE_TOOL ? 'model' : inPage ? 'page' : 'vm';
+        if (ctx.out) ctx.out.via = name === ASK_TOOL ? 'user' : name === DELEGATE_TOOL ? 'model' : inPage || TODO_TOOLS.has(name) ? 'page' : 'vm';
         return runChecked(name, input, ctx, sh, served);
     }
 
@@ -813,6 +933,12 @@ echo "$! $J"`,
                 const questions = askQuestions(input);
                 return { content: formatAnswers(questions, await ask(questions, ctx)), isError: false };
             }
+            if (name === TODO_WRITE) {
+                const list = todoList(input);
+                await todos.set(ctx, list);
+                return { content: formatTodos(list), isError: false };
+            }
+            if (name === TODO_READ) return { content: formatTodos(await todos.get(ctx)), isError: false };
             if (name === SKILL_TOOL || name === DELEGATE_TOOL) {
                 // Neither needs the VM: a sub-agent's own calls wait for it.
                 try {
@@ -839,10 +965,17 @@ echo "$! $J"`,
         }
     }
 
-    /* The tools as one agent sees them: its default shell, and the tools it may not use. */
-    const view = (shellName, exclude) => ({
+    /* The tools as one agent sees them: its default shell, the tools it may never use
+     * (exclude), and its policy (on, off, or as isEnabled says). */
+    const view = (shellName, exclude, policy = null) => {
+        const allowed = (name) => {
+            if (exclude.includes(name)) return false;
+            const p = policy?.(name);
+            return typeof p === 'boolean' ? p : !!isEnabled(name);
+        };
+        return {
         /** Read afresh for each turn: skills and settings change the list. */
-        get defs() { return defs().filter((d) => !exclude.includes(d.name)); },
+        get defs() { return allDefs().filter((d) => allowed(d.name)); },
         get cwd() { return shellOf(shellName).cwd; },
         get shell() { return shellName; },
 
@@ -852,28 +985,32 @@ echo "$! $J"`,
          * @returns {Promise<{content:string, isError:boolean}>}
          */
         run(name, input, ctx = {}) {
-            name = resolveToolName(name);
+            name = resolveToolName(name, allNames());
             if (exclude.includes(name)) return Promise.resolve({ content: `The ${name} tool is not available here.`, isError: true });
-            return runTool(name, input, ctx, shellOf(shellName));
+            return runTool(name, input, ctx, shellOf(shellName), allowed);
         },
 
         /** The tool a call means: names match without case or separators (bash → Bash). */
-        resolve(name) { return resolveToolName(name); },
+        resolve(name) { return resolveToolName(name, allNames()); },
 
         /**
          * The same tools, sharing the shells and file ordering, minus `exclude`:
          * what a sub-agent gets, so it can't delegate in turn.
          */
-        without(...more) { return view(shellName, [...exclude, ...more]); },
+        without(...more) { return view(shellName, [...exclude, ...more], policy); },
 
         /** The same tools with `name` as the default shell, made from this one's if new. */
         forShell(name) {
             shellOf(name, shellOf(shellName));
-            return view(name, exclude);
+            return view(name, exclude, policy);
         },
+
+        /** The same tools with another policy: fn(name) true, false or undefined (isEnabled). */
+        withPolicy(fn) { return view(shellName, exclude, fn); },
 
         /** Every shell so far, for display. */
         shells() { return [...shells.values()].map((s) => ({ name: s.name, cwd: s.cwd })); },
-    });
+        };
+    };
     return view(DEFAULT_SHELL, []);
 }
