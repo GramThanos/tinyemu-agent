@@ -14,6 +14,9 @@
  *   /req/<id>/kill     ask the watchdog to kill the job  (host → guest)
  *   /req/<id>/out      merged stdout + stderr            (guest → host)
  *   /req/<id>/cwd.after, rc                              (guest → host)
+ *   /req/<id>/keep     lines of `out` the page wants     (host → guest)
+ *   /req/<id>/out.tail, out.lines  the last `keep` lines of a longer `out`,
+ *                      and how many it had               (guest → host)
  *
  * Timeouts are timed here, by the page's clock, and enforced through `kill`: the
  * guest's clock can run several times faster than real time. The page clock is
@@ -83,6 +86,11 @@ while [ ! -e "$D/exited" ] && kill -0 $pid 2>/dev/null; do
 done
 wait $pid
 rc=$?
+# Only the end of a long output is wanted: the page reads that, not all of it.
+if [ -s "$D/keep" ]; then
+    k=$(cat "$D/keep"); n=$(wc -l <"$D/out" 2>/dev/null || echo 0)
+    if [ "$n" -gt "$k" ] 2>/dev/null; then tail -n "$k" "$D/out" >"$D/out.tail"; echo "$n" >"$D/out.lines"; fi
+fi
 { cat /proc/loadavg; grep -E '^(MemTotal|MemAvailable):' /proc/meminfo; } >"$D/health" 2>/dev/null
 echo $rc >"$D/rc.tmp"
 mv "$D/rc.tmp" "$D/rc"
@@ -120,9 +128,14 @@ const BOOTSTRAP = `(mkdir -p ${MOUNT} ${WORKSPACE} ${SKILLS_DIR}; mount ${P9} ${
 
 const POLL_MS = 150;
 const MAX_OUTPUT = 2 * 1024 * 1024;   // kill a job that writes more than this
+/* While a job runs its output is read whole at each change, to stream it. Past
+ * this much, streaming stops (reading it all again and again costs more each
+ * time); the end comes when the job finishes. */
+const STREAM_MAX = 256 * 1024;
 const GRACE_MS = 15000;               // on top of the timeout, for a wedged guest
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const ENC = new TextEncoder();
 /* A shell prompt at the end of the console, or starting a recent line: kernel
  * messages can still arrive after it, like "~ # [    4.75] mkdir (67) used ...". */
 const PROMPT = /[#$]\s*$|(^|\n)\S{0,40} ?[#$] /;
@@ -148,15 +161,16 @@ export class GuestBridge {
         await vm.volumePutFile(VOLUME, '/bin/agentd', AGENTD);
         await vm.volumePutFile(VOLUME, '/bin/job', JOB);
 
-        const deadline = Date.now() + timeoutMs;
+        // The page's clock: time the browser had the page stopped doesn't count.
+        const deadline = pauses.now() + timeoutMs;
         onStatus('waiting for a shell prompt');
         while (!PROMPT.test(recentConsole())) {
-            if (Date.now() > deadline) throw new Error('no shell prompt on the console');
+            if (pauses.now() > deadline) throw new Error('no shell prompt on the console');
             await sleep(250);
         }
 
         onStatus('starting the guest agent');
-        while (Date.now() < deadline) {
+        while (pauses.now() < deadline) {
             vm.sendInput(BOOTSTRAP);
             for (let i = 0; i < 40; i++) {
                 await sleep(250);
@@ -217,10 +231,13 @@ export class GuestBridge {
      * @param {(chunk:Uint8Array)=>void} [job.onOutput]  called as output grows
      * @param {AbortSignal} [job.signal]
      * @param {number} [job.graceMs]    how long past the timeout to wait for the kill
+     * @param {number} [job.keepLines]  only the last this many lines of the output come
+     *                                  back (0: all); `outLines` then says how many it had
      * @returns {Promise<{rc:number, out:Uint8Array, cwd:string|null, timedOut:boolean,
-     *                    aborted:boolean, overflow:boolean, files:Object<string,Uint8Array|null>}>}
+     *                    aborted:boolean, overflow:boolean, files:Object<string,Uint8Array|null>,
+     *                    outLines:number|null}>}
      */
-    async exec({ script, cwd = '/', timeoutMs = 120000, inputs = {}, outputs = [], onOutput, signal, graceMs = GRACE_MS }) {
+    async exec({ script, cwd = '/', timeoutMs = 120000, inputs = {}, outputs = [], onOutput, signal, graceMs = GRACE_MS, keepLines = 0 }) {
         if (!this.ready) throw new Error('the guest is not ready yet');
         const { vm } = this;
         const dir = `/req/${++this._seq}`;
@@ -228,6 +245,7 @@ export class GuestBridge {
         for (const [name, data] of Object.entries(inputs)) await vm.volumePutFile(VOLUME, `${dir}/${name}`, data);
         await vm.volumePutFile(VOLUME, `${dir}/script`, script);
         await vm.volumePutFile(VOLUME, `${dir}/cwd`, cwd);
+        if (Number.isInteger(keepLines) && keepLines > 0) await vm.volumePutFile(VOLUME, `${dir}/keep`, String(keepLines));
         await vm.volumePutFile(VOLUME, `${dir}/go`, '');
 
         const timeoutAt = pauses.now() + timeoutMs;
@@ -237,27 +255,36 @@ export class GuestBridge {
         let killed = false;
         let overflow = false;
         let timedOut = false;
+        let streaming = true;
+        let size = 0;   // the output's size at the latest look
         const kill = () => {
-            if (!killed) { killed = true; vm.volumePutFile(VOLUME, `${dir}/kill`, ''); }
+            if (killed) return;
+            killed = true;
+            // Not written (the worker went): the deadline below still ends the wait.
+            Promise.resolve().then(() => vm.volumePutFile(VOLUME, `${dir}/kill`, '')).catch(() => { killed = false; });
         };
 
         try {
             for (;;) {
                 const entries = (await vm.volumeList(VOLUME, dir)) || [];
                 const done = entries.some((e) => e.name === 'rc');
-                const size = entries.find((e) => e.name === 'out')?.size || 0;
+                size = entries.find((e) => e.name === 'out')?.size || 0;
 
                 // Read `rc` before the final `out`, so no output is missed: the
                 // job has already exited by the time rc exists.
-                if (size !== seen || done) {
+                if (streaming && size !== seen && !done) {
                     out = (await vm.volumeGetFile(VOLUME, `${dir}/out`)) || out;
                     if (out.length > seen) onOutput?.(out.subarray(seen));
                     seen = out.length;
+                    if (seen > STREAM_MAX) {
+                        streaming = false;
+                        onOutput?.(ENC.encode('\n[… more output: the end shows when the command finishes]\n'));
+                    }
                 }
                 if (done) break;
 
                 if (signal?.aborted) kill();
-                if (seen > MAX_OUTPUT) { overflow = true; kill(); }
+                if (Math.max(seen, size) > MAX_OUTPUT) { overflow = true; kill(); }
                 if (!killed && pauses.now() > timeoutAt) { timedOut = true; kill(); }
                 if (pauses.now() > deadline) throw new Error('the guest stopped responding');
                 await sleep(POLL_MS);
@@ -269,9 +296,20 @@ export class GuestBridge {
             };
             const files = {};
             for (const name of outputs) files[name] = await vm.volumeGetFile(VOLUME, `${dir}/${name}`);
+            // The end of a long output, if the guest cut one; else all of it.
+            const tail = keepLines > 0 ? await vm.volumeGetFile(VOLUME, `${dir}/out.tail`) : null;
+            const outLines = tail ? parseInt(await text('out.lines'), 10) || null : null;
+            // The stream's last part, if it is still small (the result replaces it).
+            let whole = null;
+            if (streaming && size <= STREAM_MAX) {
+                whole = (await vm.volumeGetFile(VOLUME, `${dir}/out`)) || out;
+                if (whole.length > seen) onOutput?.(whole.subarray(seen));
+            }
+            const final = tail || whole || (await vm.volumeGetFile(VOLUME, `${dir}/out`)) || out;
             return {
                 rc: parseInt(await text('rc'), 10),
-                out,
+                out: final,
+                outLines,
                 cwd: await text('cwd.after'),
                 timedOut,
                 aborted: !!signal?.aborted,

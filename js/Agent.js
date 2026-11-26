@@ -79,9 +79,13 @@ const sleep = (ms, signal) => new Promise((resolve) => {
 });
 
 /* Waits before asking again after a network failure: 5 s twice, 10 s twice, then
- * 20 s for as long as it takes. A turn waits until the connection is back or the
- * user stops it; the count starts over once a request gets through. */
+ * 20 s. A turn waits until the connection is back, the user stops it, or it has
+ * asked `networkRetries` times in a row; the count starts over once a request
+ * gets through. */
 export const NETWORK_RETRY_MS = [5000, 5000, 10000, 10000, 20000];
+/* How many times in a row a turn asks again while the model can't be reached,
+ * before it fails; 0: for as long as it takes. A setting (Settings → Agent). */
+export const NETWORK_RETRIES = 15;
 
 /** The wait before network retry number `attempt` (0-based). */
 export function networkRetryDelay(attempt, schedule = NETWORK_RETRY_MS) {
@@ -193,7 +197,9 @@ function chainHooks(a, b) {
  * keeping its task word for word; `log(entry, ctx)` gets its exchanges. `system`
  * is a prompt, or a function giving one when each sub-agent starts. `maxSteps`,
  * `maxConcurrent` (how many run at once; more wait for a turn) and
- * `toolOutputMax` are numbers or functions read when needed.
+ * `toolOutputMax` are numbers or functions read when needed. `toolsFor(tools, ctx)`,
+ * if given, adjusts a sub-agent's tools (a policy: tools.withPolicy) after Delegate
+ * and ask_user are taken out, which it can't put back.
  *
  * A turn that ends without a report (cut off at the output limit, out of steps,
  * an empty reply) is asked for one, without tools, up to WRAP_UP_TRIES times; an
@@ -213,6 +219,7 @@ function chainHooks(a, b) {
 export function createDelegate({
     tools, system = SUBAGENT_PROMPT, maxSteps = SUBAGENT_MAX_STEPS, maxConcurrent = 0, on = {}, context = {}, log = null,
     emptyRetries = EMPTY_RETRIES, toolOutputMax = null, view = null, networkRetryMs = NETWORK_RETRY_MS,
+    networkRetries = NETWORK_RETRIES, toolsFor = null,
 }) {
     const running = slots(maxConcurrent);
     let count = 0;
@@ -231,13 +238,20 @@ export function createDelegate({
         let status = 'failed';
         let final = '';
         try {
-            const n = ++count;
-            const name = resume?.name ?? `sub-agent ${n}`;
-            const subSystem = typeof system === 'function' ? system() : system;
             // The caller's tools, so the shell starts where the caller's is.
             const base = callerTools?.without ? callerTools.without(DELEGATE_TOOL, ASK_TOOL) : tools;
+            // A number no shell has yet: the count starts over after a reload, while
+            // resumed sub-agents keep their shells.
+            const taken = new Set((base.shells?.() || []).map((x) => x.name));
+            let n = ++count;
+            if (!resume) while (taken.has(`sub-agent-${n}`)) n = ++count;
+            const name = resume?.name ?? `sub-agent ${n}`;
+            // The caller's ctx, so the prompt can be the delegating chat's (its machine, its model).
+            const subSystem = typeof system === 'function' ? system(ctx) : system;
             const shell = resume?.shell ?? `sub-agent-${n}`;
-            const subTools = base.forShell ? base.forShell(shell) : base;
+            const inShell = base.forShell ? base.forShell(shell) : base;
+            // The page's choice of tools for sub-agents (their mode's); never Delegate or ask_user.
+            const subTools = toolsFor ? toolsFor(inShell, ctx) : inShell;
             const subProvider = resume?.provider ?? provider.fork({ system: subSystem, tools: subTools.defs });
             v = view?.({
                 name, description, prompt, parent: meta ?? null, callId: callId ?? null, shell, resume: resume?.view ?? null,
@@ -271,6 +285,7 @@ export function createDelegate({
                 meta: v.meta ?? null,
                 toolOutputMax,
                 networkRetryMs,
+                networkRetries,
                 log: (entry) => { log?.(entry, ctx); try { v.log?.(entry); } catch { /* never stops it */ } },
                 on: chainHooks(own, v.hooks),
             });
@@ -342,15 +357,25 @@ export const TOOL_ARG = {
     Read: 'path', Edit: 'path', Write: 'path', Glob: 'pattern', Grep: 'pattern', Bash: 'command', skill: 'name', Delegate: 'description',
 };
 
-/** That argument's text; for ask_user, its first question. */
+/** That argument's text; for ask_user, its first question; for TodoWrite, the list's state. */
 export function toolArgText(call) {
     const input = call?.input || {};
+    if (call?.name === 'TodoWrite' && Array.isArray(input.todos)) {
+        const done = input.todos.filter((x) => x?.status === 'completed').length;
+        const now = input.todos.find((x) => x?.status === 'in_progress')?.content;
+        return `${done} of ${input.todos.length} done${now ? ` · now: ${now}` : ''}`;
+    }
+    if (call?.name === 'TodoRead') return '';
     if (call?.name === ASK_TOOL) {
         const q = Array.isArray(input.questions) ? input.questions[0]?.question : input.question;
         const more = Array.isArray(input.questions) && input.questions.length > 1 ? ` (+${input.questions.length - 1} more)` : '';
         return `${String(q ?? '')}${more}`;
     }
-    return String(input[TOOL_ARG[call?.name]] ?? '');
+    const key = TOOL_ARG[call?.name];
+    if (key) return String(input[key] ?? '');
+    // Another tool (an MCP server's): its arguments in short, `a=1 b="x"`.
+    return Object.entries(input).map(([k, v]) => `${k}=${typeof v === 'string' ? JSON.stringify(v.length > 60 ? `${v.slice(0, 60)}…` : v) : JSON.stringify(v)}`)
+        .join(' ').slice(0, 200);
 }
 
 function toolArg(call) {
@@ -393,12 +418,16 @@ export class Agent {
      *                                model gets (also capped at a quarter of the window)
      * @param {number[]} [opts.networkRetryMs]  waits between asks while the model can't be
      *                                reached; the last one repeats (NETWORK_RETRY_MS)
+     * @param {number|() => number} [opts.networkRetries]  how many times in a row to ask
+     *                                again while the model can't be reached; 0: no limit
      */
     constructor({
         provider, tools, on = {}, maxSteps = MAX_STEPS, context = {}, system = null, name = 'main', log = null,
         emptyRetries = EMPTY_RETRIES, meta = null, task = null, toolOutputMax = null, networkRetryMs = NETWORK_RETRY_MS,
+        networkRetries = NETWORK_RETRIES,
     }) {
         this.networkRetryMs = networkRetryMs;   // waits after network failures (tests shorten them)
+        this.networkRetries = networkRetries;   // how many in a row, read when needed; 0: no limit
         this.provider = provider;
         this.tools = tools;
         this.on = on;
@@ -768,8 +797,15 @@ export class Agent {
                     i--;
                     continue;
                 }
-                // No connection: wait and ask again, for as long as it takes. Nothing
-                // of the failed request is in the history, so the same one goes out.
+                // No connection: wait and ask again, up to networkRetries times in a
+                // row (0: for as long as it takes). Nothing of the failed request is
+                // in the history, so the same one goes out.
+                const maxNet = valueOf(this.networkRetries);
+                if (isNetworkError(e) && Number.isInteger(maxNet) && maxNet > 0 && networkFails >= maxNet) {
+                    this._log('error', { step: i, message: e.message, network: true, gaveUp: true, attempt: networkFails });
+                    throw new Error(`Can't reach the model: gave up after ${maxNet} tries `
+                        + `(${String(e.message).split('\n')[0].slice(0, 120)}).`);
+                }
                 if (isNetworkError(e)) {
                     const delayMs = networkRetryDelay(networkFails, this.networkRetryMs);
                     networkFails++;
