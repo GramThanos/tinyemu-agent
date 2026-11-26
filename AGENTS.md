@@ -41,7 +41,7 @@ Three layers:
 | `js/environments.js` | `EnvironmentPool`, `ProjectEnvs`, `Environment` (bash.js or a VM), `createJsBridge` |
 | `js/providerStore.js`, `js/providers/*.js` | Providers, presets, per-model settings, `Connections`; one file per wire format |
 | `js/modes.js`, `js/mcp.js`, `js/skills.js`, `js/projects.js`, `js/volumes.js` | Modes; MCP client and hub; skills; project records and storage keys; `VolumeHost` |
-| `js/GuestBridge.js`, `js/bashjs.js`, `js/LinkedFolders.js` | The guest channel; Bash in bash.js; linked folders |
+| `js/GuestBridge.js`, `js/bashjs.js`, `js/LinkedFolders.js` | The guest channel; bash in bash.js; linked folders |
 | `js/figures.js`, `js/compaction.js`, `js/chats.js`, `js/pause.js`, `js/keepAwake.js`, `js/distros.js`, `js/zip.js` | Figures; compaction helpers; chat store; the pause-aware clock; keeping the page awake; where machines come from; zips |
 | `vite.config.js` | The build, the dev server (no-store; local distros from `TINYEMU_DISTROS`), the release's extra files |
 | `tests/*.test.mjs` | Node tests: tools and loop, projects, providers, modes and to-dos, MCP (against `tests/fixtures/mcpServer.mjs`) |
@@ -57,7 +57,7 @@ TinyEMU's Pages, the guests from TinyEMU-distros' Pages. The engine has both mac
    in order, each cut to the output cap.
 2. `tools.run()` validates the input, waits for a booting VM (60 s), runs the
    handler, and **never throws**: a failure is `{ content, isError: true }`.
-3. Read, Edit and Write under `/workspace` or `/agent/skills` (no `..`) are served
+3. read, edit and write under `/workspace` or `/agent/skills` (no `..`) are served
    by the page from the volume store, without the VM.
 4. Other handlers build a shell script and call `bridge.exec()`, which writes
    `/req/<id>/{inputs, script, cwd, go}` into the `agent` volume and polls for `rc`.
@@ -76,7 +76,7 @@ TinyEMU's Pages, the guests from TinyEMU-distros' Pages. The engine has both mac
 - **`rc` is written last**, by rename: its existence means the job finished. Read
   `rc` before the final `out`.
 - **A long output stays in the guest:** the page re-reads `out` whole to stream it,
-  so it stops streaming past `STREAM_MAX`, and a Bash call asks for its last
+  so it stops streaming past `STREAM_MAX`, and a bash call asks for its last
   `keepLines` lines, which the job writes to `out.tail` (with `out.lines`) before
   `rc`. jsLab's volumes have no partial reads. The test bridge doesn't cut, so
   `tools.js` cuts what a bridge returns uncut (`lastLines`).
@@ -93,22 +93,29 @@ TinyEMU's Pages, the guests from TinyEMU-distros' Pages. The engine has both mac
   throttled). The in-app browser refuses wake locks: test them in Chrome.
 
 ### Tools
-- **Names match loosely** (no case, `-`, `_` or spaces). The Agent resolves them
-  before `toolStart`, so cards and stats show the real tool.
+- **Every tool name is snake_case** (tested), and a new one must be too. A call's
+  name that matches none goes through `resolveToolName`: exact, then `snakeCase`,
+  then loosely (no case, `-`, `_` or spaces), so `Bash` and `TodoWrite` still run.
+  The Agent resolves it before `toolStart`, so cards and stats show the real tool.
+  Use the constants (`BASH_TOOL`, `DELEGATE_TOOL`, ...), never a literal.
+- **Saved names may be the old ones** (`Bash`, `TodoWrite`): settings, modes and a
+  chat's figures are carried over through `resolveToolName` when loaded; anything
+  else that compares a saved call's name (a card, a resumed turn) resolves it first.
+  Provider histories keep them as they were: they are sent back verbatim.
 - **One cap for every result** (`Agent._runCall`): the `toolOutputMax` setting, and
   never more than a quarter of the window. Don't add per-tool caps.
-- **A stopped call answers at once**, even if the tool ignores the signal; for Bash
+- **A stopped call answers at once**, even if the tool ignores the signal; for bash
   the bridge also kills the job.
-- **Per-file ordering:** Read, Edit and Write of one path run in order (`inOrder`),
-  so an Edit can't lose a concurrent change. Bash isn't ordered.
+- **Per-file ordering:** read, edit and write of one path run in order (`inOrder`),
+  so an edit can't lose a concurrent change. bash isn't ordered.
 - **Shells:** a name with a cwd and exported variables. Only a real change updates
-  either, so a parallel call that didn't move can't undo one that did. A Bash call
+  either, so a parallel call that didn't move can't undo one that did. A bash call
   that moves its shell says so in its result (`movedNote`): models otherwise lose
   track of the directory. The test bridge mirrors the guest's job script; keep the
   two in step.
 - **Page-served files** only for paths the guest really has on that volume: `..`
   always goes to the guest, and a VM whose `/proc/mounts` lacks a 9p mount gets none.
-- **Bash in bash.js:** bash.js 1.0.0 drops the backslash of `\(` and `\)`, so
+- **bash in bash.js:** bash.js 1.0.0 drops the backslash of `\(` and `\)`, so
   `createJsBridge` quotes them; drop that once bash.js is fixed. It has no abort
   signal or per-call cwd: `run()` races a timer and `cd`s first. A pure-CPU loop runs
   on microtasks, so only `maxLoopIterations` bounds it. Calls in one session run one
@@ -120,7 +127,7 @@ TinyEMU's Pages, the guests from TinyEMU-distros' Pages. The engine has both mac
   provider through `setTools`.
 - **A view's policy chooses tools** (`withPolicy(fn)`: true, false, or undefined for
   the `isEnabled` default), and `run` refuses what the view doesn't offer.
-  `without()` always wins: sub-agents never get ask_user. Delegate is the
+  `without()` always wins: sub-agents never get ask_user. delegate is the
   sub-agent mode's choice (off as it ships).
 - **ask_user and the to-do tools are the page's.** ask_user never reaches a
   sub-agent and doesn't wait for the VM; `validateInput` checks top-level types only,
@@ -232,7 +239,7 @@ TinyEMU's Pages, the guests from TinyEMU-distros' Pages. The engine has both mac
 
 ### Delegate
 - **Sub-agents get the caller's tools less ask_user, in their own shell,** then the
-  sub-agent mode's policy (`toolsFor`), which turns Delegate off unless the user turns
+  sub-agent mode's policy (`toolsFor`), which turns delegate off unless the user turns
   it on. Only the final message goes back; a turn without one is asked for a report
   (`WRAP_UP_TRIES`).
 - **Sub-agents that delegate:** each level is one deeper (`ctx.delegation`), refused
@@ -310,7 +317,7 @@ TinyEMU's Pages, the guests from TinyEMU-distros' Pages. The engine has both mac
   `inSession(s, …)`,** or it lands in whatever chat is open. Several turns run at
   once.
 - **A turn records itself** (`c.turn`) so a reload can offer to resume it. Calls that
-  were running come back "interrupted" (they may have half-run), except Delegate,
+  were running come back "interrupted" (they may have half-run), except delegate,
   whose sub-agent resumes from its chat. Declining closes the open calls, since
   Claude rejects a `tool_use` without its result.
 - **Figures live on the chat record** and stay plain JSON and bounded; a new figure
@@ -368,7 +375,7 @@ TinyEMU's Pages, the guests from TinyEMU-distros' Pages. The engine has both mac
    site as `dist`), and keep the page visible: hidden tabs are throttled.
 3. **Without a model key:** `window.agentDemo`, in the dev server only (a build has it
    with `VITE_AGENT_DEMO=1 npm run build`): (`useProvider(scripted, label)`,
-   `send(text)`, `tools.run('Bash', …)`, `setChatEnv`, `pool`, `pauses._add(ms)`, …).
+   `send(text)`, `tools.run('bash', …)`, `setChatEnv`, `pool`, `pauses._add(ms)`, …).
    Use it rather than importing `/src/app/…` from the console, which loads a second
    copy of the modules. Each chat gets a `fork()` of a scripted provider, so its first
    fork answers as the main agent and later ones as sub-agents. For MCP, run

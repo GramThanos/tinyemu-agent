@@ -7,6 +7,7 @@
 'use strict';
 
 import { estimateTokens } from './compaction.js';
+import { BASH_TOOL } from './tools.js';
 
 const SKILL_TOOL = 'skill';
 
@@ -248,7 +249,7 @@ export function recordExchange(f, e, own = 'main', now = Date.now()) {
             if (e.via && e.via !== 'model') f.via[e.via] = (f.via[e.via] || 0) + e.ms;
         }
         t.chars += Number.isFinite(e.chars) ? e.chars : String(e.content ?? '').length;
-        if (e.name === 'Bash') {
+        if (e.name === BASH_TOOL) {
             const w = commandWord(e.input?.command);
             if (w && (f.bash[w] !== undefined || Object.keys(f.bash).length < BASH_WORDS)) f.bash[w] = (f.bash[w] || 0) + 1;
             if (e.health) f.health = { ...e.health, at: now };

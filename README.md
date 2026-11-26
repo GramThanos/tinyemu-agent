@@ -3,10 +3,11 @@
 A chat page that turns your browser into an AI agent's computer. Each chat's tools run
 in an **environment**: [bash.js](https://github.com/gramthanos/bash.js) in the page,
 or a Linux VM, TinyEMU's x86 or RISC-V emulator compiled to WebAssembly. Chats are
-grouped into **projects**, each with its own files. The model gets six tools (Read,
-Edit, Write, Glob, Grep and Bash), and they all act in the chat's environment, plus a
-`skill` tool for any [skills](#skills) you import, a `Delegate` tool that hands a task
-to a sub-agent, and `ask_user`, with which it asks you questions. You can turn any of
+grouped into **projects**, each with its own files. The model gets six tools (`read`,
+`edit`, `write`, `glob`, `grep` and `bash`), and they all act in the chat's environment, plus a
+`skill` tool for any [skills](#skills) you import, a `delegate` tool that hands a task
+to a sub-agent, `ask_user`, with which it asks you questions, and a to-do list
+(`todo_write`, `todo_read`). You can turn any of
 them off in [Settings](#settings).
 Nothing runs on a server except a static file server. The site, built from these
 sources by this repository's `deploy` workflow, is published at
@@ -120,17 +121,17 @@ anything. A reply over 100,000 characters shows as plain text.
   delete that too (see [Projects and environments](#projects-and-environments)).
 - **Several chats work at once.** Open another while the agent works: it carries on,
   and its row shows a spinner (and a **?** when it is asking you something). Each
-  chat's Bash commands run in a shell of its own, so one chat's `cd` doesn't move
+  chat's bash commands run in a shell of its own, so one chat's `cd` doesn't move
   another's; a project's files are shared by its chats.
-- **Sub-agents' chats:** each sub-agent (see [Tools](#tools), Delegate) gets a chat of
+- **Sub-agents' chats:** each sub-agent (see [Tools](#tools), delegate) gets a chat of
   its own, **↳ its task**, under its main chat's row while that chat (or one of its
   sub-agents') is open; a sub-agent's own sub-agents show there too. It shows the
   sub-agent's conversation as it happens: the task it was given, its replies, thinking
   and tool cards. It is read-only: the message box is off, and **Stop** stops that
-  sub-agent alone (the main agent is told). The Delegate card's **open ↗** opens it;
+  sub-agent alone (the main agent is told). The delegate card's **open ↗** opens it;
   ✓ or ✗ on its row says how it ended. With **Delete a sub-agent's chat once it has
   finished its task** (Settings → Agent, off by default), a sub-agent that finished
-  has its chat deleted (its report stays in the Delegate card, its figures in the
+  has its chat deleted (its report stays in the delegate card, its figures in the
   main chat; open, the chat that delegated takes its place). Chats of sub-agents that
   failed or were stopped stay, and so does the chat of one whose own sub-agents' chat
   stayed.
@@ -151,7 +152,7 @@ anything. A reply over 100,000 characters shows as plain text.
       at each request, with compactions as dashed lines;
     - **Tools:** for each tool, its calls, failures, median and slowest run time,
       average output size and how many results were cut to the output limit, plus
-      calls you stopped and the Bash commands run most (`cd /x && make` counts as
+      calls you stopped and the bash commands run most (`cd /x && make` counts as
       make);
     - **Time:** waiting on the model, tools in the VM, tools the page served (bash.js
       included), tools on MCP servers, and waiting for your answers. Calls that ran side by side each count
@@ -180,7 +181,7 @@ anything. A reply over 100,000 characters shows as plain text.
 - **After a reload in the middle of a turn,** the page asks whether to carry on.
   **Resume** carries each chat on with its own model and environment, and each
   interrupted sub-agent from its saved conversation; when it reports, the main agent
-  gets the report as its Delegate result and goes on. Commands that were running are
+  gets the report as its delegate result and goes on. Commands that were running are
   not run again: the agent is told they were cut off. **Leave it stopped** marks them
   interrupted, and the chat waits for your next message.
 
@@ -194,11 +195,11 @@ In the chat:
   **Cancel** on a waiting message puts it back in the box; after **Stop**, waiting
   messages go back in the box too.
 - Each tool call appears as a card with the tool's name and main argument (and the
-  shell, for a Bash call in another one). It shows a spinner and the seconds so far
+  shell, for a bash call in another one). It shows a spinner and the seconds so far
   while it runs, then how long it took and the lines and size of its result. Expand
   it to see the input and output; a failed call's name turns red.
 - **■ stop** on a running card stops that call alone: the agent gets "stopped by the
-  user" as its result and carries on with the rest. (A Bash command is killed, with
+  user" as its result and carries on with the rest. (A bash command is killed, with
   everything it started; a sub-agent stops.) Stop under the box still stops the turn.
 - **Questions from the agent** (`ask_user`) take the message box's place: each
   question with its suggested answers as buttons (several may be picked when it
@@ -266,7 +267,7 @@ in it.
   awk, sort, diff, patch and a few more) on `/workspace`, `/agent/skills` and an
   in-memory `/tmp`; nothing else, so no python, make or compiler. It starts at once,
   works while a VM is busy, and costs nothing idle. Files are treated as UTF-8 text,
-  and `run_in_background` isn't offered. The Bash tool's description says all this,
+  and `run_in_background` isn't offered. The bash tool's description says all this,
   so the model knows. A command can't be interrupted inside bash.js: Stop and the
   timeout answer at once, and the command finishes on its own (its loops are
   bounded).
@@ -551,8 +552,8 @@ Skills are one library for every project, kept in this browser (IndexedDB), and 
 at `/agent/skills/<id>` in every environment, so the agent's tools can read and run a
 skill's files. bash.js and the page work on the library itself. A VM gets a copy,
 brought up to date when it starts and before a call whenever the library changed:
-a change the agent makes to `/agent/skills` from a VM's Bash isn't kept in the library
-(use Write, which the page serves, or import the skill).
+a change the agent makes to `/agent/skills` from a VM's bash isn't kept in the library
+(use write, which the page serves, or import the skill).
 
 There are two ways to use one:
 - **`@id` in your message.** Before the message is sent, each `@id` of a skill you
@@ -597,7 +598,7 @@ state, and, while the tab is open (sampled every 2 s):
 - **Volume** `agent`, `workspace`, `skills`: the guest's reads and writes on each
   shared folder, and their bytes (`agent` carries the tool calls themselves);
 - **Guest:** free memory, load averages and process count, as they were after the
-  agent's latest Bash command;
+  agent's latest bash command;
 - **Starts:** the average cold boot and resume time of that system over the last 20
   starts in this browser.
 
@@ -609,7 +610,7 @@ Under it, the project's environments, with the chats using each, and **Pause** a
 A project's settings hold variables to set in its shells: **Add variable**, a name
 (letters, digits and `_`, not starting with a digit) and a value, then **Save**. They
 are kept in this browser and apply:
-- to every command the project's agents run with Bash, in every shell (sub-agents'
+- to every command the project's agents run with bash, in every shell (sub-agents'
   included) and environment, bash.js too, from the next command. They are set at the
   start of each command, after what the shell exported before: a command can change
   one for itself, and the next starts from the list again. A variable removed from
@@ -690,46 +691,46 @@ The page appends these to an x86 distro's own (a RISC-V distro gets only
 
 All the tool calls in one model message run at the same time.
 
-- **Bash** runs a command in a new session, so a timeout or Stop kills the whole
+- **bash** runs a command in a new session, so a timeout or Stop kills the whole
   process tree. It runs in a **shell**: a name that keeps a working directory (it
   starts in `/workspace`) and the exported variables (`export NAME=value`) from one
   call to the next; other variables and functions don't carry over. The main agent's
   shell is `main`, and each sub-agent has its own, so a sub-agent's `cd` doesn't move
-  the main agent. The model can name another shell (Bash's `shell` input) to keep
+  the main agent. The model can name another shell (bash's `shell` input) to keep
   parallel work apart, such as a server in one and tests in another; a new one starts
   as a copy of the caller's. When a call moves its shell (a `cd`, even one inside
   `cd dir && cmd` whose command then fails), its result ends with a note naming the
   new directory, since later commands and relative paths in the file tools start
   there. Without it, a model can lose track and spread its files over two folders.
   Calls run in parallel whatever their shells. The default
-  timeout is 30 minutes (set in Settings, next to Bash) and the maximum 2 hours; when
+  timeout is 30 minutes (set in Settings, next to bash) and the maximum 2 hours; when
   it runs out, or on Stop, the command and everything it started are killed at once.
   A command is killed after 2 MB of output. The model gets the last 2000 lines of a
-  longer output (Settings, next to Bash; 0 for all), with a note of how many there
+  longer output (Settings, next to bash; 0 for all), with a note of how many there
   were, and at most the tool output limit of that (below). In a VM only those last
   lines leave the guest; while a command runs, the card streams its output until it
   passes 256 KB.
-- **Bash with `run_in_background`** returns at once with the job's output file, exit
+- **bash with `run_in_background`** returns at once with the job's output file, exit
   code file and kill command, so the model can keep working and check later. These
   jobs have no timeout or output cap, and Stop doesn't end them.
-- **Read** returns numbered lines, 2000 by default, and refuses binary files and
+- **read** returns numbered lines, 2000 by default, and refuses binary files and
   anything over 20 MB.
-- **Edit** replaces text that must match exactly once, and refuses files that aren't
+- **edit** replaces text that must match exactly once, and refuses files that aren't
   valid UTF-8.
-- **Write** creates or overwrites a file, making its folders.
-- **Read, Edit and Write of `/workspace` and `/agent/skills`** are done by the page
+- **write** creates or overwrites a file, making its folders.
+- **read, edit and write of `/workspace` and `/agent/skills`** are done by the page
   itself, on the browser's copy the guest mounts, without a trip through the VM: they
   take milliseconds instead of seconds, and work while the VM still boots. Other
   paths, and paths with `..`, go through the VM. If the guest turns out not to have
   those folders mounted, or Settings turns this off, every path goes through the VM.
-- **Glob** and **Grep** skip `.git`, `node_modules`, `/proc`, `/sys`, `/dev` and the
-  tools' bridge folder. Grep uses POSIX extended regular expressions, and its
+- **glob** and **grep** skip `.git`, `node_modules`, `/proc`, `/sys`, `/dev` and the
+  tools' bridge folder. grep uses POSIX extended regular expressions, and its
   `include` filter matches file names only. Results stop at 1000 files and 500 lines.
 - **skill**, only while you have skills, loads one skill's instructions (see
   [Skills](#skills)). It reads them in the page, so it works while the VM boots.
-- **Delegate** hands a task to a sub-agent: a new conversation with the same model
+- **delegate** hands a task to a sub-agent: a new conversation with the same model
   and the same tools, except ask_user (sub-agents can't ask you anything) and,
-  unless you turn it on in the Sub-agent mode (Settings → Modes), Delegate. Turned
+  unless you turn it on in the Sub-agent mode (Settings → Modes), delegate. Turned
   on, sub-agents can start their own, up to 3 levels deep; theirs show under the
   chat you started, and count in its figures. It sees only the prompt the model writes for it, and only
   its final message comes back as the result. Its card shows its progress (each tool
@@ -738,20 +739,23 @@ All the tool calls in one model message run at the same time.
   compacts its context like the main agent, keeping its task word for word. If its
   turn ends without a report (cut off at the output limit, out of steps, an empty
   reply), it is asked for one, without tools, up to twice; an error is asked again
-  once. It stops after 50 steps, and Stop ends it too. Several Delegate calls in one message
+  once. It stops after 50 steps, and Stop ends it too. Several delegate calls in one message
   run at the same time, up to 4 at once (both numbers are set in Settings, next to
-  Delegate); the rest wait their turn, and their cards say so. With an in-browser model
+  delegate); the rest wait their turn, and their cards say so. With an in-browser model
   they take turns anyway, since it answers one at a time.
 - **ask_user** asks you one or more questions with suggested answers and waits for
   yours (see [Using the page](#using-the-page)). Only the main agent has it.
-- **TodoWrite** and **TodoRead** keep the agent's to-do list for its task: TodoWrite
-  sets the whole list (each step pending, in progress or completed), TodoRead reads it
+- **todo_write** and **todo_read** keep the agent's to-do list for its task: todo_write
+  sets the whole list (each step pending, in progress or completed), todo_read reads it
   back. The list belongs to that agent (each sub-agent has its own) and is kept with
   its chat; nothing is written in the workspace. Above the message box, the open chat
   shows its list: how many steps are done and the one in progress, and every step
   when you click it, plus a line for each working sub-agent's list.
-- **Tool names** are matched without case or separators: a model that calls `bash`
-  or `AskUser` gets Bash or ask_user.
+- **Tool names** are all snake_case. A call to a name that isn't one is put in
+  snake_case and tried again, then compared without case or separators, so a model
+  used to other names still reaches the tool: `Bash` gets bash, `TodoWrite` todo_write,
+  `AskUser` ask_user, `todowrite` todo_write. Chats, settings and modes saved with the
+  old names (Bash, TodoWrite, ...) carry over.
 - **The tool output limit:** a result longer than the limit (30,000 characters by
   default, set in Settings → Agent), or than a quarter of the context window, reaches
   the model cut: its start and its end, with a note of what was left out and how to
@@ -782,8 +786,8 @@ and the chat notes it. Three are built in:
 | Mode | What it does | Its tools |
 |------|--------------|-----------|
 | Build | Does the work: reads, changes and runs things. The default | As in Settings → Tools |
-| Plan | Looks around and writes a plan; changes nothing | No Edit, Write or Delegate |
-| Sub-agent | What Delegate's sub-agents work in; never in the mode menu | No Delegate or ask_user |
+| Plan | Looks around and writes a plan; changes nothing | No edit, write or delegate |
+| Sub-agent | What delegate's sub-agents work in; never in the mode menu | No delegate or ask_user |
 
 **Settings → Modes** edits them and adds your own (**+ New mode**, which starts from
 Build's prompt). For each mode:
@@ -794,7 +798,7 @@ Build's prompt). For each mode:
   open chat would get it;
 - its **tools**: each one "as in Tools" (Settings → Tools decides), on, or off,
   whatever Settings → Tools says. Sub-agents never get ask_user, whatever their mode
-  says; Delegate is off in the Sub-agent mode as it ships, and can be turned on.
+  says; delegate is off in the Sub-agent mode as it ships, and can be turned on.
 
 **Save** keeps the changes, **Revert** drops them, **Reset to default** puts a built-in
 mode back as it ships, and **Delete mode** removes one of yours (its chats go back to
@@ -818,8 +822,8 @@ chat; clicking one inserts it at the cursor.
 - **Tools:** a checkbox per tool: what the model gets in every mode that doesn't say
   otherwise. A tool you turn off is taken away from the model from your next message
   on, in the same conversation, and sub-agents don't get it either; a tool a mode
-  turns on or off says so. Under Bash, its default timeout and how many of a command's
-  last output lines the model gets; under Delegate, how many
+  turns on or off says so. Under bash, its default timeout and how many of a command's
+  last output lines the model gets; under delegate, how many
   sub-agents run at once (0 for no limit) and how many steps each may take.
 - **Skills:** the skill library, for every project (see [Skills](#skills)). What an
   import or a deletion did shows under its bar.
@@ -827,7 +831,7 @@ chat; clicking one inserts it at the cursor.
 - **Agent:**
   - **Features:** whether `@id` mentions are replaced by the skill's instructions,
     whether the model's thinking shows in the chat (turning it off hides blocks
-    already there too), and whether, in a VM, Read, Edit and Write of `/workspace`
+    already there too), and whether, in a VM, read, edit and write of `/workspace`
     and `/agent/skills` are served by the page (on by default; off sends them
     through the VM like other paths, which is slower). bash.js always serves them.
   - **Agent:** the most steps (model replies) per message, 100 by default, how many
@@ -926,8 +930,8 @@ among them), the page assumes 128,000 tokens and says so; set the right number i
 Settings → Context. A value there overrides the model's for every conversation,
 except a model whose own setting gives one (Settings → Models, its ⚙).
 
-Calls that read or change the same file through Read, Edit and Write apply in the
-order the model made them. Nothing orders Bash against other calls; if parallel Bash
+Calls that read or change the same file through read, edit and write apply in the
+order the model made them. Nothing orders bash against other calls; if parallel bash
 calls change directory, the last to finish wins.
 
 ## Developing
@@ -1132,7 +1136,7 @@ node tests/mcp.test.mjs
 
 `tests/modes.test.mjs` (5 tests) covers the modes (the built-in ones, yours, the prompt
 from before modes), each mode's choice of tools through the tools layer, and the
-TodoWrite / TodoRead tools with a list per agent.
+todo_write / todo_read tools with a list per agent.
 
 `tests/providers.test.mjs` (14 tests) covers each model's own settings (kept in range,
 over the listing, in the requests under each API's name, applied to running chats) and the presets (cloud ones with fixed
@@ -1152,7 +1156,7 @@ tools through the tools layer.
 page kept before, saving, storage keys, environment keys, each project's linked
 folders), providers (the old saved connection, the offered models), handing a volume
 to a VM and back, a bash.js environment running every tool on a project's workspace
-(Glob and Grep included) with a shell per chat, and pausing an idle VM.
+(glob and grep included) with a shell per chat, and pausing an idle VM.
 `tests/tools.test.mjs`'s 115 tests cover:
 - the tools' real shell scripts, run with a local `sh` (Git Bash works on Windows)
   against a temp folder;
@@ -1161,7 +1165,7 @@ to a VM and back, a bash.js environment running every tool on a project's worksp
 - the OpenAI-compatible provider and model listing, against a fake `fetch`;
 - skills: `SKILL.md` parsing, `@id` expansion, grouping imported folders, the
   `skill` tool, turning a skill off, and handing a changed tool list to the provider;
-- Delegate's sub-agents (no ask_user for them, only their final report, asking again
+- delegate's sub-agents (no ask_user for them, only their final report, asking again
   for a report cut off at the output limit, the view the page draws them with),
   turning tools off, token usage reporting, and the thinking level sent to
   OpenAI-compatible APIs;
@@ -1220,7 +1224,7 @@ They don't boot a VM or call a real model.
 | [scripts/add-submodules.sh](scripts/add-submodules.sh) | Registers the `deps/` submodules (once) |
 | [.github/workflows/deploy.yml](.github/workflows/deploy.yml) | Builds the site and deploys it to GitHub Pages (run by hand) |
 | [scripts/release-README.md](scripts/release-README.md) | The README a release gets |
-| [js/Agent.js](js/Agent.js) | The agent loop, the system prompts, the provider interface, Delegate's sub-agents and when to compact |
+| [js/Agent.js](js/Agent.js) | The agent loop, the system prompts, the provider interface, delegate's sub-agents and when to compact |
 | [js/distros.js](js/distros.js) | Where the systems and the engine come from, and the config the page boots a system with |
 | [js/compaction.js](js/compaction.js) | Compaction: the summary prompt, the transcript, overflow errors |
 | [js/pause.js](js/pause.js) | Noticing when the browser paused the page, for timeouts |

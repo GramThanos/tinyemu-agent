@@ -88,7 +88,7 @@ await test('tool names fit the APIs, schemas are cleaned, inputs checked loosely
 await test('a card shows an MCP call\'s arguments in short', async () => {
     const { toolArgText } = await import('../js/Agent.js');
     assert.equal(toolArgText({ name: 'mcp__calc__add', input: { a: 20, b: 22, s: 'x' } }), 'a=20 b=22 s="x"');
-    assert.equal(toolArgText({ name: 'Bash', input: { command: 'ls' } }), 'ls');
+    assert.equal(toolArgText({ name: 'bash', input: { command: 'ls' } }), 'ls');
 });
 
 await test('the hub connects servers that are on, and their tools run through the tools layer', async () => {

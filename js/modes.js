@@ -5,9 +5,9 @@
  * A chat works in one mode (c.mode), picked next to its message box; sub-agents
  * work in the sub-agent one. Three are built in and can be edited (and reset):
  *   build      does the work: reads, changes and runs things (the default);
- *   plan       looks and plans, changes nothing: Edit and Write are off;
- *   sub-agent  what Delegate's sub-agents get; hidden from the picker, and
- *              Delegate and ask_user off (the page never gives them those anyway).
+ *   plan       looks and plans, changes nothing: edit, write and delegate are off;
+ *   sub-agent  what delegate's sub-agents get; hidden from the picker, and
+ *              delegate and ask_user off (ask_user the page never gives them).
  * The user can add more. A mode is
  *   { id, name, description, prompt, hidden, sub, tools: { [tool]: 'on'|'off' }, builtin }
  * where `prompt` is a template ({{VAR_...}}, see Agent.js renderPrompt), `hidden`
@@ -21,7 +21,7 @@
 
 'use strict';
 
-import { DELEGATE_TOOL, ASK_TOOL } from './tools.js';
+import { DELEGATE_TOOL, ASK_TOOL, EDIT_TOOL, WRITE_TOOL, resolveToolName } from './tools.js';
 
 export const MODES_KEY = 'tinyemu-agent-modes';
 export const DEFAULT_MODE = 'build';
@@ -30,7 +30,7 @@ export const SUB_MODE = 'sub-agent';
 /* What every built-in prompt starts with: who the agent is, on which model, where. */
 const BASE = 'You are TinyEMU, an AI agent running on {{VAR_MODEL_NAME}} (model id {{VAR_MODEL_ID}}). '
     + 'You have access to a sandbox ({{VAR_ARCH}}, {{VAR_OS_NAME}}), a bit slow and without internet access (no need to install anything). '
-    + 'You work under the `/workspace` folder. Keep a to-do list (TodoWrite) for work of several steps, so the user can follow it.';
+    + 'You work under the `/workspace` folder. Keep a to-do list (todo_write) for work of several steps, so the user can follow it.';
 
 export const BUILD_PROMPT = `${BASE}
 
@@ -42,13 +42,13 @@ You are in {{VAR_MODE}} mode: investigate and plan, but change nothing. Read fil
 
 export const SUB_PROMPT = `${BASE}
 
-You are a sub-agent: another agent gave you this task through its Delegate tool, and the user is not reading along. Do the task, then end with a report for that agent: what you did, what you found, the paths of anything you created or changed, and anything that failed or is left undone. Your final message is the only thing it receives, so put everything it needs there.`;
+You are a sub-agent: another agent gave you this task through its delegate tool, and the user is not reading along. Do the task, then end with a report for that agent: what you did, what you found, the paths of anything you created or changed, and anything that failed or is left undone. Your final message is the only thing it receives, so put everything it needs there.`;
 
 export const BUILTIN_MODES = [
     { id: 'build', name: 'Build', description: 'Does the work: reads, changes and runs things.', prompt: BUILD_PROMPT, hidden: false, sub: false, tools: {} },
     { id: 'plan', name: 'Plan', description: 'Looks around and writes a plan; changes nothing.', prompt: PLAN_PROMPT, hidden: false, sub: false,
-        tools: { Edit: 'off', Write: 'off', [DELEGATE_TOOL]: 'off' } },
-    { id: SUB_MODE, name: 'Sub-agent', description: 'What sub-agents work in (Delegate).', prompt: SUB_PROMPT, hidden: true, sub: true,
+        tools: { [EDIT_TOOL]: 'off', [WRITE_TOOL]: 'off', [DELEGATE_TOOL]: 'off' } },
+    { id: SUB_MODE, name: 'Sub-agent', description: 'What sub-agents work in (delegate).', prompt: SUB_PROMPT, hidden: true, sub: true,
         tools: { [DELEGATE_TOOL]: 'off', [ASK_TOOL]: 'off' } },
 ].map((m) => ({ ...m, builtin: true }));
 
@@ -64,7 +64,8 @@ export function modeShape(m) {
     const str = (v, d) => (typeof v === 'string' && v.trim() ? v : d);
     const tools = {};
     for (const [k, v] of Object.entries(m.tools && typeof m.tools === 'object' ? m.tools : base?.tools || {})) {
-        if (OVERRIDES.has(v)) tools[k] = v;
+        // Names from before snake_case (Edit, Delegate) are kept under the new ones.
+        if (OVERRIDES.has(v)) tools[resolveToolName(k)] = v;
     }
     return {
         id,

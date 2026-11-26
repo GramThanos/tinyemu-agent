@@ -15,6 +15,7 @@
 'use strict';
 
 import { figuresShape, recordExchange } from '../../js/figures.js';
+import { resolveToolName } from '../../js/tools.js';
 import { emit } from './store.js';
 import { S } from './state.js';
 
@@ -32,7 +33,19 @@ export function ensureChatShape(c) {
     if (!Array.isArray(c.exchanges)) c.exchanges = [];
     c.stats = { turns: 0, workMs: 0, apiMs: 0, ...(c.stats || {}) };
     c.figs = figuresShape(c.figs);
+    renameTools(c.toolStats);
+    renameTools(c.figs.tools);
     return c;
+}
+
+/* A chat saved before the tools' names were snake_case counted them as Bash, Read,
+ * ...: those counts move to the new names, unless one is already counted. */
+function renameTools(byName) {
+    if (!byName) return;
+    for (const old of Object.keys(byName)) {
+        const name = resolveToolName(old);
+        if (name !== old && !(name in byName)) { byName[name] = byName[old]; delete byName[old]; }
+    }
 }
 
 /* Per tool: calls, failures, and time, the chat's agent and its sub-agents together. */

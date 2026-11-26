@@ -34,9 +34,9 @@ await test('the built-in modes: build first and offered, plan without Edit and W
     assert.equal(modes[0].id, DEFAULT_MODE);
     const [build, plan, sub] = modes;
     assert.ok(!build.hidden && !plan.hidden && sub.hidden && sub.sub);
-    assert.equal(modePolicy(plan, 'Edit'), false);
-    assert.equal(modePolicy(plan, 'Write'), false);
-    assert.equal(modePolicy(plan, 'Bash'), undefined);
+    assert.equal(modePolicy(plan, 'edit'), false);
+    assert.equal(modePolicy(plan, 'write'), false);
+    assert.equal(modePolicy(plan, 'bash'), undefined);
     assert.equal(modePolicy(sub, DELEGATE_TOOL), false);
     assert.equal(modePolicy(sub, ASK_TOOL), false);
     for (const m of modes) {
@@ -64,7 +64,7 @@ await test('the edited prompt from before modes becomes the build mode\'s, once'
 await test('the user\'s modes are kept after the built-in ones; a bad record is dropped, a missing built-in comes back', () => {
     const storage = memory();
     storage.setItem(MODES_KEY, JSON.stringify([
-        { id: 'review', name: 'Review', prompt: 'Review things.', hidden: true, tools: { Bash: 'off', Write: 'maybe' } },
+        { id: 'review', name: 'Review', prompt: 'Review things.', hidden: true, tools: { Bash: 'off', Write: 'maybe', TodoWrite: 'on' } },
         { id: 'plan', name: 'Planner', prompt: 'P', tools: {} },
         { id: '../evil', name: 'x', prompt: 'y' },
         null,
@@ -76,7 +76,8 @@ await test('the user\'s modes are kept after the built-in ones; a bad record is 
     const review = modes[3];
     assert.equal(review.builtin, false);
     assert.equal(review.sub, false);
-    assert.deepEqual(review.tools, { Bash: 'off' });
+    // Names from before snake_case come back under the new ones.
+    assert.deepEqual(review.tools, { bash: 'off', todo_write: 'on' });
     assert.equal(newModeId('Review', modes), 'review-2');
     assert.equal(newModeId('  Code review! ', modes), 'code-review');
     // A user's mode can't make itself the sub-agent one.
@@ -84,17 +85,17 @@ await test('the user\'s modes are kept after the built-in ones; a bad record is 
 });
 
 await test('a view\'s policy turns tools on or off over the defaults; excluded tools stay out', async () => {
-    const disabled = new Set(['Grep']);
+    const disabled = new Set(['grep']);
     const tools = createTools(noBridge, { isEnabled: (n) => !disabled.has(n), delegate: async () => 'r', ask: async () => ({}) });
     const names = (v) => v.defs.map((d) => d.name);
-    assert.ok(!names(tools).includes('Grep'));
+    assert.ok(!names(tools).includes('grep'));
     const plan = BUILTIN_MODES.find((m) => m.id === 'plan');
     const planView = tools.withPolicy((n) => modePolicy(plan, n));
-    assert.ok(!names(planView).includes('Edit') && !names(planView).includes('Write') && names(planView).includes('Read'));
-    assert.match((await planView.run('Write', { path: '/workspace/a', content: 'x' })).content, /turned off/);
+    assert.ok(!names(planView).includes('edit') && !names(planView).includes('write') && names(planView).includes('read'));
+    assert.match((await planView.run('write', { path: '/workspace/a', content: 'x' })).content, /turned off/);
     // A mode can turn on what the defaults turn off.
-    const on = tools.withPolicy((n) => (n === 'Grep' ? true : undefined));
-    assert.ok(names(on).includes('Grep'));
+    const on = tools.withPolicy((n) => (n === 'grep' ? true : undefined));
+    assert.ok(names(on).includes('grep'));
     // The policy carries into another shell; without() still wins over it.
     const sub = on.forShell('s1').without(DELEGATE_TOOL, ASK_TOOL).withPolicy((n) => (n === DELEGATE_TOOL ? true : undefined));
     assert.ok(!names(sub).includes(DELEGATE_TOOL) && !names(sub).includes(ASK_TOOL));

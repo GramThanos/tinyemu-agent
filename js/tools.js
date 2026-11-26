@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /*
- * tools.js — the tools the model can call: Read, Edit, Write, Glob, Grep, Bash,
- * `skill` while the user has imported skills (see skills.js), Delegate (a
- * sub-agent, see Agent.js) and ask_user (the page's question form).
+ * tools.js — the tools the model can call: read, edit, write, glob, grep, bash,
+ * `skill` while the user has imported skills (see skills.js), delegate (a
+ * sub-agent, see Agent.js), ask_user (the page's question form) and the to-do
+ * list (todo_write, todo_read).
  *
- * A call's name is matched without case or separators (`bash` runs Bash).
+ * Every name is snake_case. A call's name that matches none is put in snake_case
+ * (`TodoWrite` → todo_write), then compared without case or separators (`BASH`,
+ * `todowrite`): models trained on other tools' names still reach these.
  *
  * Everything acts on the guest filesystem through GuestBridge.exec(). Shell scripts
  * do only what needs the guest (file transfer, find, grep); parsing, matching and
@@ -38,9 +41,16 @@ const READY_TIMEOUT_MS = 60000;    // how long a call waits for a VM that is sti
 /* Pseudo-filesystems and dependency/VCS directories, skipped by Glob and Grep. */
 const PRUNE = `\\( -path /proc -o -path /sys -o -path /dev -o -path ${"'/mnt/agent'"} -o -name .git -o -name node_modules \\) -prune -o`;
 
+export const READ_TOOL = 'read';
+export const EDIT_TOOL = 'edit';
+export const WRITE_TOOL = 'write';
+export const GLOB_TOOL = 'glob';
+export const GREP_TOOL = 'grep';
+export const BASH_TOOL = 'bash';
+
 export const TOOL_DEFS = [
     {
-        name: 'Read',
+        name: READ_TOOL,
         description: 'Reads a text file from the VM. Returns numbered lines (like `cat -n`), up to 2000 lines per call; use offset and limit to page through longer files.',
         input_schema: {
             type: 'object',
@@ -53,7 +63,7 @@ export const TOOL_DEFS = [
         },
     },
     {
-        name: 'Edit',
+        name: EDIT_TOOL,
         description: 'Replaces a string in an existing file. old_string must match exactly (including whitespace) and must occur exactly once; add surrounding lines to make it unique.',
         input_schema: {
             type: 'object',
@@ -66,7 +76,7 @@ export const TOOL_DEFS = [
         },
     },
     {
-        name: 'Write',
+        name: WRITE_TOOL,
         description: 'Creates a file, or completely overwrites an existing one. Creates parent directories as needed.',
         input_schema: {
             type: 'object',
@@ -78,7 +88,7 @@ export const TOOL_DEFS = [
         },
     },
     {
-        name: 'Glob',
+        name: GLOB_TOOL,
         description: 'Lists file paths matching a glob pattern, relative to path, without reading contents. Supports *, ?, [...], {a,b} and **, e.g. **/*.ts. A pattern with no slash matches only directly inside path.',
         input_schema: {
             type: 'object',
@@ -90,7 +100,7 @@ export const TOOL_DEFS = [
         },
     },
     {
-        name: 'Grep',
+        name: GREP_TOOL,
         description: 'Searches file contents with a POSIX extended regular expression. Returns path:line:text. Skips .git, node_modules and pseudo-filesystems.',
         input_schema: {
             type: 'object',
@@ -123,7 +133,7 @@ function minutes(ms) { return `${+(ms / 60000).toFixed(2)} minute${ms === 60000 
 export function movedNote(to, shell = null) {
     return shell
         ? `The shell ${shell} is now in ${to}; its later commands start there.`
-        : `The working directory is now ${to}: later Bash commands, and relative paths in Read, Edit, Write, Glob and Grep, start there.`;
+        : `The working directory is now ${to}: later bash commands, and relative paths in read, edit, write, glob and grep, start there.`;
 }
 
 /* What bash.js runs besides its builtins (deps/bash.js, Settings → Features). */
@@ -132,7 +142,7 @@ export const BASHJS_UTILITIES = 'cat, ls, mkdir, rm, mv, dirname, head, tail, wc
 /** The Bash tool as it runs in bash.js, in the page, instead of in the VM. */
 export function bashJsDef(defaultMs = BASH_DEFAULT_MS) {
     return {
-        name: 'Bash',
+        name: BASH_TOOL,
         description: `Runs a command in bash.js, a bash interpreter inside the page, not in the VM. It understands bash itself (pipes, redirections, here-documents, variables, functions, if/for/while/case, $(...), globs), and besides the builtins only these commands exist: ${BASHJS_UTILITIES}. No other program runs: no python, make, apk, curl, git or compilers. Its filesystem has only /workspace and /agent/skills (the same files the VM sees) and /tmp (in memory, not the VM's /tmp); files are UTF-8 text. A shell keeps its directory, variables and functions between calls. Output is stdout and stderr merged. Background jobs (&) run to completion before the call returns.`,
         input_schema: {
             type: 'object',
@@ -148,8 +158,8 @@ export function bashJsDef(defaultMs = BASH_DEFAULT_MS) {
 
 export function bashDef(defaultMs = BASH_DEFAULT_MS) {
     return {
-        name: 'Bash',
-        description: 'Runs a command with /bin/sh in the VM, in a shell session. A shell keeps its working directory and exported variables (export NAME=value) between calls; other variables and functions do not carry over. Output is stdout and stderr merged. Several Bash calls in one message run at the same time; give them different shells when they should not share a directory or variables (a server in one, tests in another). If parallel calls in one shell change its directory or variables, the last to finish wins. With run_in_background the call returns at once with where to find the output and exit code, and the command keeps running with no timeout until it ends or you kill it.',
+        name: BASH_TOOL,
+        description: 'Runs a command with /bin/sh in the VM, in a shell session. A shell keeps its working directory and exported variables (export NAME=value) between calls; other variables and functions do not carry over. Output is stdout and stderr merged. Several bash calls in one message run at the same time; give them different shells when they should not share a directory or variables (a server in one, tests in another). If parallel calls in one shell change its directory or variables, the last to finish wins. With run_in_background the call returns at once with where to find the output and exit code, and the command keeps running with no timeout until it ends or you kill it.',
         input_schema: {
             type: 'object',
             properties: {
@@ -163,12 +173,12 @@ export function bashDef(defaultMs = BASH_DEFAULT_MS) {
     };
 }
 
-export const DELEGATE_TOOL = 'Delegate';
+export const DELEGATE_TOOL = 'delegate';
 
 /* Offered when createTools() gets a `delegate` runner (see Agent.js). */
 export const DELEGATE_DEF = {
     name: DELEGATE_TOOL,
-    description: 'Hands a self-contained task to a sub-agent: a new conversation with the same model and the same tools (unless the user lets sub-agents delegate, without Delegate) in the same VM. It sees only your prompt, not this conversation, so include everything it needs: the goal, the relevant paths and facts, and what to report back. It returns the sub-agent\'s final report. Use it for a piece of work that would fill your context with detail you don\'t need afterwards, such as a broad search or an independent subtask. Several Delegate calls in one message run at the same time; give them work that doesn\'t touch the same files.',
+    description: 'Hands a self-contained task to a sub-agent: a new conversation with the same model and the same tools (unless the user lets sub-agents delegate, without delegate) in the same VM. It sees only your prompt, not this conversation, so include everything it needs: the goal, the relevant paths and facts, and what to report back. It returns the sub-agent\'s final report. Use it for a piece of work that would fill your context with detail you don\'t need afterwards, such as a broad search or an independent subtask. Several delegate calls in one message run at the same time; give them work that doesn\'t touch the same files.',
     input_schema: {
         type: 'object',
         properties: {
@@ -270,8 +280,8 @@ export function formatAnswers(questions, reply) {
 
 /* ---- the agent's own to-do list ------------------------------------------------ */
 
-export const TODO_WRITE = 'TodoWrite';
-export const TODO_READ = 'TodoRead';
+export const TODO_WRITE = 'todo_write';
+export const TODO_READ = 'todo_read';
 export const TODO_STATUSES = ['pending', 'in_progress', 'completed'];
 const TODO_MAX = 50;
 const TODO_TEXT_MAX = 300;
@@ -303,12 +313,12 @@ export const TODO_WRITE_DEF = {
 };
 export const TODO_READ_DEF = {
     name: TODO_READ,
-    description: 'Returns your current to-do list (as last set with TodoWrite), to check where you are.',
+    description: 'Returns your current to-do list (as last set with todo_write), to check where you are.',
     input_schema: { type: 'object', properties: {} },
 };
 
 /**
- * A TodoWrite input as the list to keep: [{ content, status }].
+ * A todo_write input as the list to keep: [{ content, status }].
  * @throws {ToolError} what is wrong with it
  */
 export function todoList(input) {
@@ -335,12 +345,31 @@ export function formatTodos(list) {
 /** Every tool name the page can offer, for settings. */
 export const ALL_TOOL_NAMES = [...TOOL_DEFS.map((d) => d.name), SKILL_TOOL, DELEGATE_TOOL, ASK_TOOL, TODO_WRITE, TODO_READ];
 
-/* Names compared without case or separators: bash, BASH, Ask-User, askUser. */
+/**
+ * A name in snake_case: TodoWrite → todo_write, askUser → ask_user, Ask-User →
+ * ask_user, HTTPServer → http_server. Underscores already there stay as they are,
+ * so an MCP tool's mcp__server__tool keeps its double ones.
+ */
+export function snakeCase(name) {
+    return String(name ?? '').trim()
+        .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+        .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+        .replace(/[\s-]+/g, '_')
+        .toLowerCase();
+}
+
+/* Names compared without case or separators: BASH, todowrite, Todo-Write. */
 const nameKey = (name) => String(name ?? '').toLowerCase().replace(/[\s_-]+/g, '');
 
-/** A tool name as the model wrote it, as one of `names`; the name itself if none matches. */
+/**
+ * A tool name as the model wrote it, as one of `names`: as it is, else in
+ * snake_case, else without case or separators; the name itself if none matches.
+ * Also what carries the names from before snake_case (Bash, TodoWrite) over.
+ */
 export function resolveToolName(name, names = ALL_TOOL_NAMES) {
     if (names.includes(name)) return name;
+    const snake = snakeCase(name);
+    if (names.includes(snake)) return snake;
     const key = nameKey(name);
     return names.find((n) => nameKey(n) === key) ?? name;
 }
@@ -503,7 +532,7 @@ export function withUserEnv(shellScript, vars, managed) {
     return out ? `${out.replace(/\n*$/, '')}\n` : null;
 }
 
-const FILE_TOOLS = new Set(['Read', 'Edit', 'Write']);
+const FILE_TOOLS = new Set([READ_TOOL, EDIT_TOOL, WRITE_TOOL]);
 const TODO_TOOLS = new Set([TODO_WRITE, TODO_READ]);
 
 /**
@@ -602,7 +631,7 @@ export function createTools(bridgeOrPromise, {
     const allDefs = () => {
         // Only the skills the user has left on (a SkillLibrary has enabled()).
         const skill = skills && skillToolDef(skills.enabled ? skills.enabled() : skills.list());
-        const base = TOOL_DEFS.map((d) => (d.name === 'Bash' ? (jsShell() ? bashJsDef : bashDef)(defaultTimeout()) : d));
+        const base = TOOL_DEFS.map((d) => (d.name === BASH_TOOL ? (jsShell() ? bashJsDef : bashDef)(defaultTimeout()) : d));
         return [...base, skill, delegate && DELEGATE_DEF, ask && ASK_DEF, todos && TODO_WRITE_DEF, todos && TODO_READ_DEF,
             ...extras().map((x) => x.def)].filter(Boolean);
     };
@@ -726,22 +755,22 @@ cp ${q} "$AGENT_DIR/data"`,
     };
 
     const handlers = {
-        async Read({ path, offset, limit }, { signal }, sh) {
+        async [READ_TOOL]({ path, offset, limit }, { signal }, sh) {
             const target = abs(path, sh);
             const bytes = await inOrder(target, () => fetchFile(target, signal));
-            if (bytes.includes(0)) throw new ToolError(`Binary file (${bytes.length} bytes); use Bash to inspect it.`);
+            if (bytes.includes(0)) throw new ToolError(`Binary file (${bytes.length} bytes); use bash to inspect it.`);
             return formatLines(DEC.decode(bytes), offset, limit);
         },
 
-        async Edit({ path, old_string, new_string }, { signal }, sh) {
-            if (old_string === '') throw new ToolError('old_string must not be empty; use Write to create a file.');
+        async [EDIT_TOOL]({ path, old_string, new_string }, { signal }, sh) {
+            if (old_string === '') throw new ToolError('old_string must not be empty; use write to create a file.');
             if (old_string === new_string) throw new ToolError('old_string and new_string are identical.');
             const target = abs(path, sh);
             return inOrder(target, async () => {
                 const bytes = await fetchFile(target, signal);
                 let text;
                 try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
-                catch { throw new ToolError('File is not valid UTF-8; Edit would corrupt it. Use Bash instead.'); }
+                catch { throw new ToolError('File is not valid UTF-8; edit would corrupt it. Use bash instead.'); }
                 const parts = text.split(old_string);
                 if (parts.length === 1) throw new ToolError(`old_string was not found in ${path}.`);
                 if (parts.length > 2) throw new ToolError(`old_string occurs ${parts.length - 1} times in ${path}; include more context to make it unique.`);
@@ -750,14 +779,14 @@ cp ${q} "$AGENT_DIR/data"`,
             });
         },
 
-        async Write({ path, content }, { signal }, sh) {
+        async [WRITE_TOOL]({ path, content }, { signal }, sh) {
             const target = abs(path, sh);
             const bytes = ENC.encode(content);
             await inOrder(target, () => storeFile(target, bytes, signal));
             return `Wrote ${bytes.length} bytes to ${target}.`;
         },
 
-        async Glob({ pattern, path = '.' }, { signal }, sh) {
+        async [GLOB_TOOL]({ pattern, path = '.' }, { signal }, sh) {
             const root = abs(path, sh);
             const q = shQuote(root);
             const r = await script(
@@ -777,7 +806,7 @@ cp ${q} "$AGENT_DIR/data"`,
             return shown.join('\n');
         },
 
-        async Grep({ pattern, path = '.', include }, { signal }, sh) {
+        async [GREP_TOOL]({ pattern, path = '.', include }, { signal }, sh) {
             const target = shQuote(abs(path, sh));
             const pat = shQuote(pattern);
             // `find -name` has no {a,b} and no directories; only the last path segment applies.
@@ -808,7 +837,7 @@ exit 0`,
             return shown.join('\n');
         },
 
-        async Bash({ command, timeout, run_in_background = false, shell }, { signal, onOutput, out }, own) {
+        async [BASH_TOOL]({ command, timeout, run_in_background = false, shell }, { signal, onOutput, out }, own) {
             if (shell !== undefined && !SHELL_NAME.test(shell)) {
                 throw new ToolError('shell must be 1 to 40 letters, digits, dots, dashes or underscores.');
             }
@@ -922,7 +951,7 @@ echo "$! $J"`,
         // via 'vm' (the guest), 'page' (served here), 'user' (ask_user) or 'model'
         // (a sub-agent); a Bash call adds the guest's health (GuestBridge.parseHealth).
         const served = FILE_TOOLS.has(name) && route(abs(input.path, sh));
-        const inPage = served || name === SKILL_TOOL || (name === 'Bash' && jsShell() && !input.run_in_background);
+        const inPage = served || name === SKILL_TOOL || (name === BASH_TOOL && jsShell() && !input.run_in_background);
         if (ctx.out) ctx.out.via = name === ASK_TOOL ? 'user' : name === DELEGATE_TOOL ? 'model' : inPage || TODO_TOOLS.has(name) ? 'page' : 'vm';
         return runChecked(name, input, ctx, sh, served);
     }
@@ -990,7 +1019,7 @@ echo "$! $J"`,
             return runTool(name, input, ctx, shellOf(shellName), allowed);
         },
 
-        /** The tool a call means: names match without case or separators (bash → Bash). */
+        /** The tool a call means: as written, else in snake_case, else loosely (TodoWrite → todo_write). */
         resolve(name) { return resolveToolName(name, allNames()); },
 
         /**

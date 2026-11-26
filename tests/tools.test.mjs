@@ -13,7 +13,7 @@ import { join } from 'node:path';
 
 import {
     createTools, expandBraces, formatLines, globMatcher, shellEnv, shQuote, withUserEnv, truncateOutput, validateInput, TOOL_DEFS,
-    ASK_TOOL, askQuestions, formatAnswers, lastLines, limitToolOutput, resolveToolName,
+    ASK_TOOL, askQuestions, formatAnswers, lastLines, limitToolOutput, resolveToolName, snakeCase, ALL_TOOL_NAMES,
 } from '../js/tools.js';
 import { pauses } from '../js/pause.js';
 import { PERIOD_S, toneSamples } from '../js/keepAwake.js';
@@ -29,7 +29,7 @@ import { apiError, listOpenAIModels, mergeCall, OpenAICompatProvider, openAIUsag
 import {
     Agent, createDelegate, INTERRUPTED, isNetworkError, NETWORK_RETRIES, NETWORK_RETRY_MS, networkRetryDelay,
     renderPrompt, subagentPrompt, SUBAGENT_PROMPT, SYSTEM_PROMPT } from '../js/Agent.js';
-import { DELEGATE_TOOL } from '../js/tools.js';
+import { DELEGATE_TOOL, TODO_READ, TODO_WRITE } from '../js/tools.js';
 import { LinkedFolders } from '../js/LinkedFolders.js';
 import {
     expandSkillMentions, groupSkillFiles, parseFrontmatter, parseSkillFile, SkillLibrary, SKILL_TOOL, SKILLS_VOLUME,
@@ -137,7 +137,7 @@ await test('truncateOutput keeps both ends', () => {
 });
 
 await test('validateInput rejects what the model can get wrong', () => {
-    const { input_schema: s } = TOOL_DEFS.find((d) => d.name === 'Read');
+    const { input_schema: s } = TOOL_DEFS.find((d) => d.name === 'read');
     assert.equal(validateInput(s, { path: 'x' }), null);
     assert.match(validateInput(s, {}), /missing/);
     assert.match(validateInput(s, { path: 1 }), /string/);
@@ -147,10 +147,10 @@ await test('validateInput rejects what the model can get wrong', () => {
 });
 
 await test('tool-call parsing', () => {
-    const r = parseToolCalls('Sure.\n<tool_call>{"name":"Bash","arguments":{"command":"ls"}}</tool_call>');
+    const r = parseToolCalls('Sure.\n<tool_call>{"name":"bash","arguments":{"command":"ls"}}</tool_call>');
     assert.equal(r.text, 'Sure.');
-    assert.deepEqual(r.calls, [{ name: 'Bash', input: { command: 'ls' } }]);
-    assert.equal(parseToolCalls('<tool_call>{"name":"Read","arguments":{"path":"a"}}').calls[0].name, 'Read');
+    assert.deepEqual(r.calls, [{ name: 'bash', input: { command: 'ls' } }]);
+    assert.equal(parseToolCalls('<tool_call>{"name":"read","arguments":{"path":"a"}}').calls[0].name, 'read');
     assert.match(parseToolCalls('<tool_call>{oops}</tool_call>').calls[0].error, /Could not parse/);
     assert.equal(parseToolCalls('no calls').calls.length, 0);
     assert.equal(stripThinking('<think>hmm</think>\nHi'), 'Hi');
@@ -168,94 +168,94 @@ await test('visible-text filter hides markup split across chunks', () => {
 /* ---- tools against a real shell ---------------------------------------- */
 
 await test('Read numbers lines and honours offset and limit', async () => {
-    const r = await run('Read', { path: 'a.txt', offset: 2, limit: 1 });
+    const r = await run('read', { path: 'a.txt', offset: 2, limit: 1 });
     assert.equal(r.isError, false);
     assert.match(r.content, /^ {5}2\tbeta\n\[showing lines 2-2 of 3/);
 });
 
 await test('Read reports missing files, directories and binaries', async () => {
-    assert.match((await run('Read', { path: 'nope' })).content, /does not exist/);
-    assert.match((await run('Read', { path: 'src' })).content, /directory/);
-    const bin = await run('Read', { path: 'bin.dat' });
+    assert.match((await run('read', { path: 'nope' })).content, /does not exist/);
+    assert.match((await run('read', { path: 'src' })).content, /directory/);
+    const bin = await run('read', { path: 'bin.dat' });
     assert.ok(bin.isError);
     assert.match(bin.content, /Binary/);
 });
 
 await test('paths are quoted, not interpreted', async () => {
-    assert.match((await run('Read', { path: "it's quoted.txt" })).content, /ok/);
-    await run('Read', { path: `x'; touch pwned; '` });
-    assert.equal((await run('Read', { path: 'pwned' })).isError, true);
+    assert.match((await run('read', { path: "it's quoted.txt" })).content, /ok/);
+    await run('read', { path: `x'; touch pwned; '` });
+    assert.equal((await run('read', { path: 'pwned' })).isError, true);
 });
 
 await test('Write creates parents and overwrites', async () => {
     const content = 'line "one" $HOME `x` \\n\nüñí\n';
-    assert.equal((await run('Write', { path: 'new/dir/f.txt', content })).isError, false);
+    assert.equal((await run('write', { path: 'new/dir/f.txt', content })).isError, false);
     assert.equal(readFileSync(join(root, 'new', 'dir', 'f.txt'), 'utf8'), content);
-    await run('Write', { path: 'new/dir/f.txt', content: 'short' });
+    await run('write', { path: 'new/dir/f.txt', content: 'short' });
     assert.equal(readFileSync(join(root, 'new', 'dir', 'f.txt'), 'utf8'), 'short');
 });
 
 await test('Edit requires exactly one match', async () => {
-    await run('Write', { path: 'e.txt', content: 'one two two $& \n' });
-    assert.match((await run('Edit', { path: 'e.txt', old_string: 'zzz', new_string: 'y' })).content, /not found/);
-    assert.match((await run('Edit', { path: 'e.txt', old_string: 'two', new_string: 'y' })).content, /2 times/);
-    assert.match((await run('Edit', { path: 'e.txt', old_string: '', new_string: 'y' })).content, /empty/);
-    assert.match((await run('Edit', { path: 'e.txt', old_string: 'one', new_string: 'one' })).content, /identical/);
-    assert.equal((await run('Edit', { path: 'e.txt', old_string: 'one', new_string: '$1$&' })).isError, false);
+    await run('write', { path: 'e.txt', content: 'one two two $& \n' });
+    assert.match((await run('edit', { path: 'e.txt', old_string: 'zzz', new_string: 'y' })).content, /not found/);
+    assert.match((await run('edit', { path: 'e.txt', old_string: 'two', new_string: 'y' })).content, /2 times/);
+    assert.match((await run('edit', { path: 'e.txt', old_string: '', new_string: 'y' })).content, /empty/);
+    assert.match((await run('edit', { path: 'e.txt', old_string: 'one', new_string: 'one' })).content, /identical/);
+    assert.equal((await run('edit', { path: 'e.txt', old_string: 'one', new_string: '$1$&' })).isError, false);
     assert.equal(readFileSync(join(root, 'e.txt'), 'utf8'), '$1$& two two $& \n');
 });
 
 await test('Edit refuses a file that is not UTF-8', async () => {
     writeFileSync(join(root, 'latin.txt'), Buffer.from([0x63, 0x61, 0x66, 0xe9]));
-    assert.match((await run('Edit', { path: 'latin.txt', old_string: 'c', new_string: 'd' })).content, /UTF-8/);
+    assert.match((await run('edit', { path: 'latin.txt', old_string: 'c', new_string: 'd' })).content, /UTF-8/);
 });
 
 await test('Glob matches recursively and prunes', async () => {
-    const r = await run('Glob', { pattern: '**/*.js' });
+    const r = await run('glob', { pattern: '**/*.js' });
     assert.match(r.content, /src\/deep\/util\.js/);
     assert.doesNotMatch(r.content, /node_modules/);
     assert.doesNotMatch(r.content, /\/\.\//);
-    assert.doesNotMatch((await run('Grep', { pattern: 'needle' })).content, /\/\.\//);
-    assert.equal((await run('Glob', { pattern: '*.js', path: 'src/deep' })).content.split('\n').length, 1);
-    assert.equal((await run('Glob', { pattern: '*.zzz' })).content, 'No files found.');
-    assert.match((await run('Glob', { pattern: '*', path: 'a.txt' })).content, /Not a directory/);
+    assert.doesNotMatch((await run('grep', { pattern: 'needle' })).content, /\/\.\//);
+    assert.equal((await run('glob', { pattern: '*.js', path: 'src/deep' })).content.split('\n').length, 1);
+    assert.equal((await run('glob', { pattern: '*.zzz' })).content, 'No files found.');
+    assert.match((await run('glob', { pattern: '*', path: 'a.txt' })).content, /Not a directory/);
 });
 
 await test('Grep finds lines, filters and prunes', async () => {
-    const all = await run('Grep', { pattern: 'needle' });
+    const all = await run('grep', { pattern: 'needle' });
     assert.match(all.content, /src\/main\.ts:1:/);
     assert.doesNotMatch(all.content, /node_modules/);
-    const py = await run('Grep', { pattern: 'needle', include: '*.py' });
+    const py = await run('grep', { pattern: 'needle', include: '*.py' });
     assert.match(py.content, /notes\.py/);
     assert.doesNotMatch(py.content, /main\.ts/);
-    const both = await run('Grep', { pattern: 'needle', include: '*.{py,ts}' });
+    const both = await run('grep', { pattern: 'needle', include: '*.{py,ts}' });
     assert.match(both.content, /notes\.py/);
     assert.match(both.content, /main\.ts/);
-    assert.match((await run('Grep', { pattern: 'beta', path: 'a.txt' })).content, /a\.txt:2:beta/);
-    assert.equal((await run('Grep', { pattern: 'absent-text' })).content, 'No matches found.');
-    assert.match((await run('Grep', { pattern: 'x', path: 'nope' })).content, /does not exist/);
-    const bad = await run('Grep', { pattern: '(' });
+    assert.match((await run('grep', { pattern: 'beta', path: 'a.txt' })).content, /a\.txt:2:beta/);
+    assert.equal((await run('grep', { pattern: 'absent-text' })).content, 'No matches found.');
+    assert.match((await run('grep', { pattern: 'x', path: 'nope' })).content, /does not exist/);
+    const bad = await run('grep', { pattern: '(' });
     assert.ok(bad.isError);
     assert.match(bad.content, /Invalid regular expression/);
 });
 
 await test('Bash returns output, exit codes, and keeps the directory', async () => {
     const t = createTools(new LocalBridge(work), { cwd: rootSh });
-    assert.equal((await t.run('Bash', { command: 'echo hi' })).content, 'hi\n');
-    assert.equal((await t.run('Bash', { command: ': quiet' })).content, '(no output)');
-    const failed = await t.run('Bash', { command: 'echo oops; exit 7' });
+    assert.equal((await t.run('bash', { command: 'echo hi' })).content, 'hi\n');
+    assert.equal((await t.run('bash', { command: ': quiet' })).content, '(no output)');
+    const failed = await t.run('bash', { command: 'echo oops; exit 7' });
     assert.ok(failed.isError);
     assert.match(failed.content, /oops\n\[Exit code 7\.\]/);
-    await t.run('Bash', { command: 'cd src' });
-    assert.match((await t.run('Bash', { command: 'pwd' })).content, /\/src\n$/);
-    assert.ok((await t.run('Read', { path: 'main.ts' })).content.includes('needle'));
+    await t.run('bash', { command: 'cd src' });
+    assert.match((await t.run('bash', { command: 'pwd' })).content, /\/src\n$/);
+    assert.ok((await t.run('read', { path: 'main.ts' })).content.includes('needle'));
 });
 
 await test('tool errors come back as results, never as exceptions', async () => {
     assert.ok((await run('Nope', {})).isError);
-    assert.ok((await run('Read', { path: 5 })).isError);
+    assert.ok((await run('read', { path: 5 })).isError);
     const broken = createTools({ exec: async () => { throw new Error('boom'); } });
-    const r = await broken.run('Bash', { command: 'x' });
+    const r = await broken.run('bash', { command: 'x' });
     assert.ok(r.isError);
     assert.match(r.content, /boom/);
 });
@@ -274,8 +274,8 @@ function scripted(steps) {
 await test('Agent loops until the model stops and returns every result', async () => {
     const provider = scripted([
         { stop: 'tool_use', toolCalls: [
-            { id: '1', name: 'Read', input: { path: 'a.txt' } },
-            { id: '2', name: 'Read', input: { path: 'nope' } },
+            { id: '1', name: 'read', input: { path: 'a.txt' } },
+            { id: '2', name: 'read', input: { path: 'nope' } },
         ] },
         { stop: 'end', text: 'done' },
     ]);
@@ -309,8 +309,8 @@ const tick = () => new Promise((r) => setTimeout(r, 5));
 await test('stopping answers every running tool call', async () => {
     const ac = new AbortController();
     const provider = scripted([{ stop: 'tool_use', toolCalls: [
-        { id: '1', name: 'Bash', input: { command: 'sleep 9' } },
-        { id: '2', name: 'Bash', input: { command: 'sleep 9' } },
+        { id: '1', name: 'bash', input: { command: 'sleep 9' } },
+        { id: '2', name: 'bash', input: { command: 'sleep 9' } },
     ] }]);
     const bridge = heldBridge();
     const sent = new Agent({ provider, tools: createTools(bridge) }).send('go', ac.signal);
@@ -325,7 +325,7 @@ await test('stopping answers every running tool call', async () => {
 
 await test('a step\'s calls run at once and results keep call order', async () => {
     const provider = scripted([
-        { stop: 'tool_use', toolCalls: ['a', 'b', 'c'].map((c, i) => ({ id: String(i), name: 'Bash', input: { command: c } })) },
+        { stop: 'tool_use', toolCalls: ['a', 'b', 'c'].map((c, i) => ({ id: String(i), name: 'bash', input: { command: c } })) },
         { stop: 'end' },
     ]);
     const bridge = heldBridge();
@@ -349,8 +349,8 @@ await test('a step\'s calls run at once and results keep call order', async () =
 await test('a parallel call that did not cd cannot undo one that did', async () => {
     const bridge = heldBridge();
     const t = createTools(bridge, { cwd: '/start' });
-    const moved = t.run('Bash', { command: 'cd /elsewhere' });
-    const stayed = t.run('Bash', { command: 'sleep 1' });
+    const moved = t.run('bash', { command: 'cd /elsewhere' });
+    const stayed = t.run('bash', { command: 'sleep 1' });
     await tick();
     bridge.jobs[0].finish({ cwd: '/elsewhere' });
     await moved;
@@ -361,12 +361,12 @@ await test('a parallel call that did not cd cannot undo one that did', async () 
 
 await test('Read, Edit and Write of one file keep call order; other files do not wait', async () => {
     const t = createTools(new LocalBridge(work), { cwd: rootSh });
-    await t.run('Write', { path: 'q.txt', content: 'one two' });
+    await t.run('write', { path: 'q.txt', content: 'one two' });
     const [, , read, other] = await Promise.all([
-        t.run('Edit', { path: 'q.txt', old_string: 'one', new_string: '1' }),
-        t.run('Edit', { path: 'q.txt', old_string: 'two', new_string: '2' }),
-        t.run('Read', { path: 'q.txt' }),
-        t.run('Read', { path: 'a.txt' }),
+        t.run('edit', { path: 'q.txt', old_string: 'one', new_string: '1' }),
+        t.run('edit', { path: 'q.txt', old_string: 'two', new_string: '2' }),
+        t.run('read', { path: 'q.txt' }),
+        t.run('read', { path: 'a.txt' }),
     ]);
     assert.match(read.content, /1 2/);
     assert.match(other.content, /alpha/);
@@ -374,9 +374,9 @@ await test('Read, Edit and Write of one file keep call order; other files do not
 
     const bridge = heldBridge();
     const held = createTools(bridge, { cwd: '/x' });
-    held.run('Write', { path: 'a', content: '1' });
-    held.run('Write', { path: 'a', content: '2' });
-    held.run('Write', { path: 'b', content: '3' });
+    held.run('write', { path: 'a', content: '1' });
+    held.run('write', { path: 'a', content: '2' });
+    held.run('write', { path: 'b', content: '3' });
     await tick();
     assert.equal(bridge.jobs.length, 2);   // the first `a` and `b`; the second `a` is queued
     assert.deepEqual(bridge.jobs.map((j) => new TextDecoder().decode(j.inputs.data)), ['1', '3']);
@@ -390,8 +390,8 @@ await test('Read, Edit and Write of one file keep call order; other files do not
 await test('a failed file call does not block the next one', async () => {
     const t = createTools(new LocalBridge(work), { cwd: rootSh });
     const [missing, written] = await Promise.all([
-        t.run('Edit', { path: 'later.txt', old_string: 'a', new_string: 'b' }),
-        t.run('Write', { path: 'later.txt', content: 'x' }),
+        t.run('edit', { path: 'later.txt', old_string: 'a', new_string: 'b' }),
+        t.run('write', { path: 'later.txt', content: 'x' }),
     ]);
     assert.match(missing.content, /does not exist/);
     assert.equal(written.isError, false);
@@ -399,24 +399,24 @@ await test('a failed file call does not block the next one', async () => {
 
 await test('Bash run_in_background returns while the command keeps running', async () => {
     const t = createTools(new LocalBridge(work), { cwd: rootSh });
-    assert.match((await t.run('Bash', { command: 'x', run_in_background: 'yes' })).content, /true or false/);
-    const r = await t.run('Bash', { command: 'pwd; echo "it\'s" fine; sleep 2; exit 4', run_in_background: true });
+    assert.match((await t.run('bash', { command: 'x', run_in_background: 'yes' })).content, /true or false/);
+    const r = await t.run('bash', { command: 'pwd; echo "it\'s" fine; sleep 2; exit 4', run_in_background: true });
     assert.equal(r.isError, false);
     const dir = r.content.match(/Output: (\S+)\/out/)[1];
     assert.match(r.content, /kill -TERM -\d+/);
-    assert.equal((await t.run('Bash', { command: `[ -e ${dir}/rc ] || echo running` })).content, 'running\n');
+    assert.equal((await t.run('bash', { command: `[ -e ${dir}/rc ] || echo running` })).content, 'running\n');
     for (let i = 0; i < 100; i++) {
-        if ((await t.run('Bash', { command: `[ -e ${dir}/rc ] && echo done` })).content === 'done\n') break;
+        if ((await t.run('bash', { command: `[ -e ${dir}/rc ] && echo done` })).content === 'done\n') break;
         await new Promise((res) => setTimeout(res, 100));
     }
-    const out = await t.run('Bash', { command: `cat ${dir}/out ${dir}/rc` });
+    const out = await t.run('bash', { command: `cat ${dir}/out ${dir}/rc` });
     assert.equal(out.content, `${rootSh}\nit's fine\n4\n`);
-    await t.run('Bash', { command: `rm -rf ${dir}` });
+    await t.run('bash', { command: `rm -rf ${dir}` });
 });
 
 await test('WebLLM provider runs the text protocol through the loop', async () => {
     const replies = [
-        ['<think>plan</think>Let me ', 'check.<tool_', 'call>{"name":"Read","arguments":{"path":"a.txt"}}</tool_call>'],
+        ['<think>plan</think>Let me ', 'check.<tool_', 'call>{"name":"read","arguments":{"path":"a.txt"}}</tool_call>'],
         ['<tool_call>{broken</tool_call>'],
         ['All done.'],
     ];
@@ -431,7 +431,7 @@ await test('WebLLM provider runs the text protocol through the loop', async () =
     const r = await new Agent({ provider, tools, on: { text: (t) => { shown += t; } } }).send('go');
     assert.equal(r.stop, 'end');
     assert.equal(shown, 'Let me check.All done.');
-    assert.match(provider.messages[0].content, /"name":"Grep"/);
+    assert.match(provider.messages[0].content, /"name":"grep"/);
     const responses = provider.messages.filter((m) => m.content.startsWith('<tool_response'));
     assert.match(responses[0].content, /1\talpha/);
     assert.match(responses[1].content, /error="true"[^]*Could not parse/);
@@ -442,7 +442,7 @@ await test('a call made while the VM boots waits for it, then runs', async () =>
     let up;
     const t = createTools(new Promise((resolve) => { up = resolve; }), { cwd: rootSh });
     let shown = '';
-    const pending = t.run('Read', { path: 'a.txt' }, { onOutput: (s) => { shown += s; } });
+    const pending = t.run('read', { path: 'a.txt' }, { onOutput: (s) => { shown += s; } });
     await new Promise((r) => setTimeout(r, 50));
     up(new LocalBridge(work));
     const r = await pending;
@@ -455,7 +455,7 @@ await test('a VM that is not ready in time gives the model an error, having run 
     let ran = false;
     const late = new Promise((resolve) => setTimeout(() => resolve({ exec: async () => { ran = true; } }), 300));
     const t = createTools(late, { cwd: rootSh, readyTimeoutMs: 50 });
-    const r = await t.run('Bash', { command: 'echo hi' });
+    const r = await t.run('bash', { command: 'echo hi' });
     assert.equal(r.isError, true);
     assert.match(r.content, /still booting[^]*Nothing ran/);
     await late;
@@ -464,13 +464,13 @@ await test('a VM that is not ready in time gives the model an error, having run 
 
 await test('a failed boot, and Stop while waiting, end the call at once', async () => {
     const failed = createTools(Promise.reject(new Error('no kernel')), { cwd: rootSh });
-    const r1 = await failed.run('Read', { path: 'a.txt' });
+    const r1 = await failed.run('read', { path: 'a.txt' });
     assert.equal(r1.isError, true);
     assert.match(r1.content, /failed to boot \(no kernel\)/);
 
     const t = createTools(new Promise(() => {}), { cwd: rootSh });
     const stop = new AbortController();
-    const pending = t.run('Bash', { command: ':' }, { signal: stop.signal });
+    const pending = t.run('bash', { command: ':' }, { signal: stop.signal });
     stop.abort();
     const r2 = await pending;
     assert.equal(r2.isError, true);
@@ -509,10 +509,10 @@ await test('OpenAI-compatible provider streams, runs calls and keeps extra field
         [delta({ role: 'assistant', reasoning_content: 'Plan' }),
          delta({ content: 'Reading.' }),
          // arguments split across chunks; Gemini's signature rides on the call
-         delta({ tool_calls: [{ index: 0, id: 'c1', type: 'function', function: { name: 'Read', arguments: '{"pa' }, extra_content: sig }] }),
+         delta({ tool_calls: [{ index: 0, id: 'c1', type: 'function', function: { name: 'read', arguments: '{"pa' }, extra_content: sig }] }),
          delta({ tool_calls: [{ index: 0, function: { arguments: 'th":"a.txt"}' } }] }),
-         delta({ tool_calls: [{ index: 1, type: 'function', function: { name: 'Bash', arguments: '{"command":"exit 3"}' } }] }),
-         delta({ tool_calls: [{ index: 2, id: 'c3', type: 'function', function: { name: 'Read', arguments: '{"path":' } }] }, 'tool_calls'),
+         delta({ tool_calls: [{ index: 1, type: 'function', function: { name: 'bash', arguments: '{"command":"exit 3"}' } }] }),
+         delta({ tool_calls: [{ index: 2, id: 'c3', type: 'function', function: { name: 'read', arguments: '{"path":' } }] }, 'tool_calls'),
          '[DONE]'],
         [delta({ content: 'All ' }), delta({ content: 'done.' }, 'stop'), '[DONE]'],
     ]);
@@ -530,7 +530,7 @@ await test('OpenAI-compatible provider streams, runs calls and keeps extra field
         }
         const msgs = requests[1].body.messages;
         assert.deepEqual(msgs[0], { role: 'system', content: 'SYS' });
-        assert.ok(requests[0].body.tools.some((t) => t.function.name === 'Grep' && t.function.parameters.type === 'object'));
+        assert.ok(requests[0].body.tools.some((t) => t.function.name === 'grep' && t.function.parameters.type === 'object'));
         const asst = msgs[2];
         assert.equal(asst.content, 'Reading.');
         assert.equal(asst.tool_calls[0].function.arguments, '{"path":"a.txt"}');
@@ -548,7 +548,7 @@ await test('OpenAI-compatible provider streams, runs calls and keeps extra field
 await test('OpenAI-compatible provider retries 503, drops a cut-off call, reports errors', async () => {
     const { fetch, requests } = fakeFetch([
         { status: 503, body: [{ error: { code: 503, message: 'The model is overloaded.' } }], headers: { 'retry-after': '0' } },
-        [delta({ tool_calls: [{ index: 0, id: 'c1', function: { name: 'Bash', arguments: '{"comm' } }] }, 'length'), '[DONE]'],
+        [delta({ tool_calls: [{ index: 0, id: 'c1', function: { name: 'bash', arguments: '{"comm' } }] }, 'length'), '[DONE]'],
         { status: 400, body: [{ error: { code: 400, message: 'bad request' } }] },
     ]);
     await withFetch(fetch, async () => {
@@ -582,7 +582,7 @@ await test('model listing keeps chat models, strips Gemini\'s prefix, needs no k
 });
 
 await test('Agent gives up after maxSteps', async () => {
-    const step = { stop: 'tool_use', toolCalls: [{ id: '1', name: 'Bash', input: { command: ':' } }] };
+    const step = { stop: 'tool_use', toolCalls: [{ id: '1', name: 'bash', input: { command: ':' } }] };
     const provider = scripted([step, step, step]);
     const r = await new Agent({ provider, tools, maxSteps: 2 }).send('go');
     assert.equal(r.stop, 'max_steps');
@@ -761,12 +761,12 @@ await test('providers swap their tool lists', () => {
     const one = [TOOL_DEFS[0]];
     const oa = new OpenAICompatProvider({ apiKey: '', baseURL: 'http://x', model: 'm', system: 's', tools: TOOL_DEFS });
     oa.setTools(one);
-    assert.deepEqual(oa.tools.map((x) => x.function.name), ['Read']);
+    assert.deepEqual(oa.tools.map((x) => x.function.name), ['read']);
     const wl = new WebLLMProvider({ model: 'm', system: 'SYS', tools: TOOL_DEFS });
     wl.setTools(one);
     assert.match(wl.messages[0].content, /^SYS/);
-    assert.equal(wl.messages[0].content.includes(`"name":"Bash"`), false);
-    assert.ok(wl.messages[0].content.includes(`"name":"Read"`));
+    assert.equal(wl.messages[0].content.includes(`"name":"bash"`), false);
+    assert.ok(wl.messages[0].content.includes(`"name":"read"`));
 });
 
 /* ---- delegate, settings, usage --------------------------------------- */
@@ -797,12 +797,12 @@ await test('Delegate runs a sub-agent with the tools its policy leaves (no Deleg
     assert.ok(t.defs.some((d) => d.name === DELEGATE_TOOL));
 
     const provider = forkable([
-        { stop: 'tool_use', toolCalls: [{ id: 'd1', name: 'Delegate', input: { description: 'read a', prompt: 'Read a.txt' } }] },
+        { stop: 'tool_use', toolCalls: [{ id: 'd1', name: 'delegate', input: { description: 'read a', prompt: 'Read a.txt' } }] },
         { stop: 'end' },
     ], [[
         { stop: 'tool_use', text: 'Looking.', toolCalls: [
-            { id: 's1', name: 'Read', input: { path: 'a.txt' } },
-            { id: 's2', name: 'Delegate', input: { description: 'x', prompt: 'y' } },
+            { id: 's1', name: 'read', input: { path: 'a.txt' } },
+            { id: 's2', name: 'delegate', input: { description: 'x', prompt: 'y' } },
         ] },
         { stop: 'end', text: 'a.txt starts with alpha.' },
     ]]);
@@ -812,15 +812,15 @@ await test('Delegate runs a sub-agent with the tools its policy leaves (no Deleg
     const [sub] = provider.forks;
     assert.match(sub.system, /You are a sub-agent/);
     assert.equal(sub.defs.includes(DELEGATE_TOOL), false);
-    assert.equal(sub.defs.includes('Read'), true);
+    assert.equal(sub.defs.includes('read'), true);
     assert.deepEqual(sub.history[0], ['user', 'Read a.txt']);
     const subResults = sub.history[1][1];
     assert.match(subResults[0].content, /1\talpha/);
-    assert.deepEqual(subResults[1], { id: 's2', content: 'The Delegate tool is turned off.', isError: true });
+    assert.deepEqual(subResults[1], { id: 's2', content: 'The delegate tool is turned off.', isError: true });
     const main = provider.history[1][1][0];
     assert.deepEqual(main, { id: 'd1', content: 'a.txt starts with alpha.', isError: false });
-    assert.equal(progress.join(''), 'Looking.\n▸ Read a.txt\n▸ Delegate x\n'
-        + '  ✗ Delegate: The Delegate tool is turned off.\na.txt starts with alpha.');
+    assert.equal(progress.join(''), 'Looking.\n▸ read a.txt\n▸ delegate x\n'
+        + '  ✗ delegate: The delegate tool is turned off.\na.txt starts with alpha.');
 });
 
 await test('a sub-agent given Delegate delegates in turn, as deep as allowed, sharing one place', async () => {
@@ -830,9 +830,9 @@ await test('a sub-agent given Delegate delegates in turn, as deep as allowed, sh
     delegate = createDelegate({ tools: t, maxConcurrent: 1, maxDepth: 2 });
     const forks = [];
     const scripts = [
-        [{ stop: 'tool_use', toolCalls: [{ id: 'a', name: 'Delegate', input: { description: 'deeper', prompt: 'go deeper' } }] },
+        [{ stop: 'tool_use', toolCalls: [{ id: 'a', name: 'delegate', input: { description: 'deeper', prompt: 'go deeper' } }] },
             { stop: 'end', text: 'level 1 done' }],
-        [{ stop: 'tool_use', toolCalls: [{ id: 'b', name: 'Delegate', input: { description: 'deepest', prompt: 'go deeper still' } }] },
+        [{ stop: 'tool_use', toolCalls: [{ id: 'b', name: 'delegate', input: { description: 'deepest', prompt: 'go deeper still' } }] },
             { stop: 'end', text: 'level 2 done' }],
     ];
     const make = (steps) => {
@@ -847,7 +847,7 @@ await test('a sub-agent given Delegate delegates in turn, as deep as allowed, sh
         return p;
     };
     const provider = make([
-        { stop: 'tool_use', toolCalls: [{ id: 'd', name: 'Delegate', input: { description: 'top', prompt: 'do it' } }] },
+        { stop: 'tool_use', toolCalls: [{ id: 'd', name: 'delegate', input: { description: 'top', prompt: 'do it' } }] },
         { stop: 'end' },
     ]);
     const r = await Promise.race([
@@ -870,31 +870,31 @@ await test('Delegate reports a sub-agent that stops early, and needs a forkable 
     const t = createTools(new LocalBridge(work), { cwd: rootSh, delegate: (i, c) => delegate(i, c) });
     delegate = createDelegate({ tools: t.without(DELEGATE_TOOL), maxSteps: 1 });
     const call = { description: 'loop', prompt: 'p' };
-    const step = { stop: 'tool_use', text: 'Partial findings.', toolCalls: [{ id: 's', name: 'Bash', input: { command: ':' } }] };
+    const step = { stop: 'tool_use', text: 'Partial findings.', toolCalls: [{ id: 's', name: 'bash', input: { command: ':' } }] };
     // Out of steps: asked for its report once more, which is all the caller gets.
     const p1 = forkable([], [[step, { stop: 'end', text: 'Final report.' }]]);
-    const r1 = await t.run('Delegate', call, { provider: p1 });
+    const r1 = await t.run('delegate', call, { provider: p1 });
     assert.deepEqual(r1, { content: 'Final report.', isError: false });
     assert.match(p1.forks[0].history.at(-1)[1], /used all the steps[\s\S]*final report/);
     // When that fails too, the last thing it said is kept.
-    const r1b = await t.run('Delegate', call, { provider: forkable([], [[step, { stop: 'refusal', detail: 'no' }]]) });
+    const r1b = await t.run('delegate', call, { provider: forkable([], [[step, { stop: 'refusal', detail: 'no' }]]) });
     assert.deepEqual(r1b, { content: 'Partial findings.\n\n[The sub-agent stopped early: no]', isError: false });
-    const r2 = await t.run('Delegate', call, { provider: forkable([], [[{ stop: 'refusal', detail: 'no' }]]) });
+    const r2 = await t.run('delegate', call, { provider: forkable([], [[{ stop: 'refusal', detail: 'no' }]]) });
     assert.deepEqual(r2, { content: 'The sub-agent stopped without a report: no', isError: true });
-    const r3 = await t.run('Delegate', call, { provider: scripted([]) });
+    const r3 = await t.run('delegate', call, { provider: scripted([]) });
     assert.match(r3.content, /cannot start a sub-agent/);
     assert.equal(r3.isError, true);
 });
 
 await test('turned-off tools leave the list and refuse to run', async () => {
-    const off = new Set(['Bash', DELEGATE_TOOL]);
+    const off = new Set(['bash', DELEGATE_TOOL]);
     const t = createTools(new LocalBridge(work), { cwd: rootSh, delegate: async () => 'x', isEnabled: (n) => !off.has(n) });
-    assert.deepEqual(t.defs.map((d) => d.name), ['Read', 'Edit', 'Write', 'Glob', 'Grep']);
-    assert.deepEqual(await t.run('Bash', { command: 'echo hi' }), { content: 'The Bash tool is turned off.', isError: true });
+    assert.deepEqual(t.defs.map((d) => d.name), ['read', 'edit', 'write', 'glob', 'grep']);
+    assert.deepEqual(await t.run('bash', { command: 'echo hi' }), { content: 'The bash tool is turned off.', isError: true });
     assert.deepEqual(await t.run('Nope', {}), { content: 'Unknown tool: Nope', isError: true });
-    off.delete('Bash');
-    assert.equal((await t.run('Bash', { command: 'echo hi' })).content, 'hi\n');
-    assert.deepEqual(t.without('Read').defs.map((d) => d.name), ['Edit', 'Write', 'Glob', 'Grep', 'Bash']);
+    off.delete('bash');
+    assert.equal((await t.run('bash', { command: 'echo hi' })).content, 'hi\n');
+    assert.deepEqual(t.without('read').defs.map((d) => d.name), ['edit', 'write', 'glob', 'grep', 'bash']);
 });
 
 await test('usage reaches the agent, normalized from OpenAI-style responses', async () => {
@@ -1237,12 +1237,12 @@ await test('links survive a reload, and the size cap stops a big folder', async 
 await test('tools sync before and after VM calls only', async () => {
     const calls = [];
     const t = createTools(new LocalBridge(work), { cwd: rootSh, sync: async () => { calls.push('sync'); }, delegate: async () => 'r' });
-    await t.run('Bash', { command: 'echo hi' });
+    await t.run('bash', { command: 'echo hi' });
     assert.deepEqual(calls, ['sync', 'sync']);
-    await t.run('Delegate', { description: 'd', prompt: 'p' });
+    await t.run('delegate', { description: 'd', prompt: 'p' });
     assert.equal(calls.length, 2);
     const failing = createTools(new LocalBridge(work), { cwd: rootSh, sync: async () => { throw new Error('x'); } });
-    assert.equal((await failing.run('Bash', { command: 'echo ok' })).content, 'ok\n');
+    assert.equal((await failing.run('bash', { command: 'echo ok' })).content, 'ok\n');
 });
 
 /* ---- guest config ------------------------------------------------------------ */
@@ -1346,11 +1346,11 @@ function compactable(steps, { summaries = [], contextWindow = 1000, maxOutput = 
 await test('renderTranscript labels entries, cuts long ones and keeps the start and the latest', () => {
     const text = renderTranscript([
         { role: 'user', text: 'make a game' },
-        { role: 'call', text: 'Bash {"command":"ls"}' },
+        { role: 'call', text: 'bash {"command":"ls"}' },
         { role: 'result', text: 'x'.repeat(10000), isError: true },
         { role: 'assistant', text: 'done' },
     ], 1e6);
-    assert.match(text, /^USER:\nmake a game\n\nTOOL CALL:\nBash \{"command":"ls"\}\n\nTOOL RESULT \(error\):\nx{2000}\n\[… 6000 characters cut …\]\nx{2000}\n\nAGENT:\ndone$/);
+    assert.match(text, /^USER:\nmake a game\n\nTOOL CALL:\nbash \{"command":"ls"\}\n\nTOOL RESULT \(error\):\nx{2000}\n\[… 6000 characters cut …\]\nx{2000}\n\nAGENT:\ndone$/);
     const many = Array.from({ length: 50 }, (_, i) => ({ role: 'assistant', text: `step ${i} ${'.'.repeat(80)}` }));
     const fit = renderTranscript([{ role: 'user', text: 'the original request' }, ...many], 1000);
     assert.ok(fit.length <= 1000, `${fit.length} characters`);
@@ -1407,7 +1407,7 @@ await test('the agent compacts by itself before a message once the context passe
 });
 
 await test('a long turn compacts between its steps, and says to carry on', async () => {
-    const call = { id: 'c', name: 'Bash', input: { command: 'echo hi' } };
+    const call = { id: 'c', name: 'bash', input: { command: 'echo hi' } };
     const p = compactable([
         { stop: 'tool_use', toolCalls: [call], usage: 500 },
         { stop: 'tool_use', toolCalls: [{ ...call, id: 'd' }], usage: 900 },
@@ -1482,13 +1482,13 @@ await test('providers render their history and reset it to one message', () => {
     const claude = new ClaudeProvider({ apiKey: 'k', model: 'm', system: 'S', tools: TOOL_DEFS, contextWindow: 200000 });
     claude.messages = [
         { role: 'user', content: 'do it' },
-        { role: 'assistant', content: [{ type: 'thinking', thinking: 'hmm' }, { type: 'text', text: 'ok' }, { type: 'tool_use', id: 't', name: 'Bash', input: { command: 'ls' } }] },
+        { role: 'assistant', content: [{ type: 'thinking', thinking: 'hmm' }, { type: 'text', text: 'ok' }, { type: 'tool_use', id: 't', name: 'bash', input: { command: 'ls' } }] },
         { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: 'a.txt', is_error: false }] },
     ];
     assert.deepEqual(claude.transcript(), [
         { role: 'user', text: 'do it' },
         { role: 'assistant', text: 'ok' },
-        { role: 'call', text: 'Bash {"command":"ls"}' },
+        { role: 'call', text: 'bash {"command":"ls"}' },
         { role: 'result', text: 'a.txt', isError: false },
     ]);
     assert.equal(claude.fork({ system: 'x', tools: [] }).contextWindow, 200000);
@@ -1497,10 +1497,10 @@ await test('providers render their history and reset it to one message', () => {
 
     const oa = new OpenAICompatProvider({ apiKey: '', baseURL: 'http://x', model: 'm', system: 'SYS', tools: TOOL_DEFS, contextWindow: 32000 });
     oa.messages.push({ role: 'user', content: 'q' },
-        { role: 'assistant', content: null, tool_calls: [{ id: '1', function: { name: 'Read', arguments: '{"path":"a"}' } }] },
+        { role: 'assistant', content: null, tool_calls: [{ id: '1', function: { name: 'read', arguments: '{"path":"a"}' } }] },
         { role: 'tool', tool_call_id: '1', content: 'text' });
     assert.deepEqual(oa.transcript(), [
-        { role: 'user', text: 'q' }, { role: 'call', text: 'Read {"path":"a"}' }, { role: 'result', text: 'text' },
+        { role: 'user', text: 'q' }, { role: 'call', text: 'read {"path":"a"}' }, { role: 'result', text: 'text' },
     ]);
     assert.equal(oa.fork({ system: 'x', tools: [] }).contextWindow, 32000);
     oa.resetHistory('summary');
@@ -1552,10 +1552,10 @@ await test('providers replace their system prompt in place', () => {
     const wl = new WebLLMProvider({ model: 'm', system: 'OLD', tools: TOOL_DEFS });
     wl.setSystem('NEW');
     assert.match(wl.messages[0].content, /^NEW\n\nYou have these tools:/);
-    assert.ok(wl.messages[0].content.includes('"name":"Read"'), 'the tools stay described');
+    assert.ok(wl.messages[0].content.includes('"name":"read"'), 'the tools stay described');
     wl.setTools([TOOL_DEFS[5]]);
     assert.match(wl.messages[0].content, /^NEW\n/);
-    assert.equal(wl.messages[0].content.includes('"name":"Read"'), false);
+    assert.equal(wl.messages[0].content.includes('"name":"read"'), false);
 });
 
 await test('the agent gives the provider an edited system prompt at the next message', async () => {
@@ -1585,9 +1585,9 @@ await test('sub-agents start from the edited prompt plus their own role', async 
     const t = createTools(new LocalBridge(work), { cwd: rootSh, delegate: (i, c) => delegate(i, c) });
     delegate = createDelegate({ tools: t.without(DELEGATE_TOOL), system: () => subagentPrompt(current) });
     const provider = forkable([], [[{ stop: 'end', text: 'r1' }], [{ stop: 'end', text: 'r2' }]]);
-    await t.run('Delegate', { description: 'a', prompt: 'p' }, { provider });
+    await t.run('delegate', { description: 'a', prompt: 'p' }, { provider });
     current = 'Changed rules.';
-    await t.run('Delegate', { description: 'b', prompt: 'p' }, { provider });
+    await t.run('delegate', { description: 'b', prompt: 'p' }, { provider });
     assert.match(provider.forks[0].system, /^Custom rules\.\n\nYou are a sub-agent/);
     assert.match(provider.forks[1].system, /^Changed rules\.\n\nYou are a sub-agent/);
 });
@@ -1608,40 +1608,40 @@ await test('the system prompt fills in the machine placeholders', () => {
 await test('each Bash shell keeps its own directory and exported variables', async () => {
     const t = createTools(new LocalBridge(work), { cwd: rootSh });
     // A call that moves the shell says so, as a model easily loses track of it.
-    const moved = await t.run('Bash', { command: 'cd src; export GREETING=hello; PLAIN=x' });
-    assert.equal(moved.content, `[The working directory is now ${rootSh}/src: later Bash commands, and relative paths in Read, Edit, Write, Glob and Grep, start there.]`);
-    assert.match((await t.run('Bash', { command: 'pwd; echo "$GREETING:$PLAIN"' })).content, /\/src\nhello:\n$/);
+    const moved = await t.run('bash', { command: 'cd src; export GREETING=hello; PLAIN=x' });
+    assert.equal(moved.content, `[The working directory is now ${rootSh}/src: later bash commands, and relative paths in read, edit, write, glob and grep, start there.]`);
+    assert.match((await t.run('bash', { command: 'pwd; echo "$GREETING:$PLAIN"' })).content, /\/src\nhello:\n$/);
     // A new shell starts as a copy of the caller's, then goes its own way.
-    const other = await t.run('Bash', { command: 'pwd; echo "$GREETING"; cd deep; export GREETING=bye', shell: 'side' });
+    const other = await t.run('bash', { command: 'pwd; echo "$GREETING"; cd deep; export GREETING=bye', shell: 'side' });
     assert.match(other.content, /\/src\nhello\n\[The shell side is now in \S+\/src\/deep; its later commands start there\.\]$/);
     // A failing command after a cd still moved it, and says both.
-    const failed = await t.run('Bash', { command: 'cd deep && false', shell: 'third' });
+    const failed = await t.run('bash', { command: 'cd deep && false', shell: 'third' });
     assert.equal(failed.isError, true);
     assert.match(failed.content, /^\[Exit code 1\. The shell third is now in \S+\/src\/deep; its later commands start there\.\]$/);
-    assert.match((await t.run('Bash', { command: 'pwd; echo $GREETING' })).content, /\/src\nhello\n$/);
-    assert.match((await t.run('Bash', { command: 'pwd; echo $GREETING', shell: 'side' })).content, /\/src\/deep\nbye\n$/);
-    assert.match((await t.run('Bash', { command: 'pwd', shell: 'no spaces' })).content, /shell must be/);
+    assert.match((await t.run('bash', { command: 'pwd; echo $GREETING' })).content, /\/src\nhello\n$/);
+    assert.match((await t.run('bash', { command: 'pwd; echo $GREETING', shell: 'side' })).content, /\/src\/deep\nbye\n$/);
+    assert.match((await t.run('bash', { command: 'pwd', shell: 'no spaces' })).content, /shell must be/);
     assert.deepEqual(t.shells().map((s) => s.name), ['main', 'side', 'third']);
     // A value with a quote and a newline survives the round trip.
-    await t.run('Bash', { command: `export TRICKY="it's
+    await t.run('bash', { command: `export TRICKY="it's
 two lines"` });
-    assert.equal((await t.run('Bash', { command: 'printf %s "$TRICKY"' })).content, "it's\ntwo lines");
+    assert.equal((await t.run('bash', { command: 'printf %s "$TRICKY"' })).content, "it's\ntwo lines");
 });
 
 await test('the user\'s environment variables are set in every shell, and follow changes', async () => {
     let vars = { API_URL: 'http://x.test/a b', QUOTE: "it's" };
     const t = createTools(new LocalBridge(work), { cwd: rootSh, env: () => vars });
-    assert.equal((await t.run('Bash', { command: 'printf "%s|%s" "$API_URL" "$QUOTE"' })).content, "http://x.test/a b|it's");
+    assert.equal((await t.run('bash', { command: 'printf "%s|%s" "$API_URL" "$QUOTE"' })).content, "http://x.test/a b|it's");
     // A command's own export of one of them lasts for that command only; others carry on.
-    await t.run('Bash', { command: 'export API_URL=mine; export OWN=kept' });
-    assert.equal((await t.run('Bash', { command: 'printf "%s|%s" "$API_URL" "$OWN"' })).content, 'http://x.test/a b|kept');
+    await t.run('bash', { command: 'export API_URL=mine; export OWN=kept' });
+    assert.equal((await t.run('bash', { command: 'printf "%s|%s" "$API_URL" "$OWN"' })).content, 'http://x.test/a b|kept');
     // Changed and removed in the settings: the shells follow at their next command.
     vars = { API_URL: 'http://y.test' };
-    assert.equal((await t.run('Bash', { command: 'printf "%s|%s|%s" "$API_URL" "${QUOTE-unset}" "$OWN"' })).content, 'http://y.test|unset|kept');
-    assert.equal((await t.run('Bash', { command: 'printf %s "$API_URL"', shell: 'other' })).content, 'http://y.test');
+    assert.equal((await t.run('bash', { command: 'printf "%s|%s|%s" "$API_URL" "${QUOTE-unset}" "$OWN"' })).content, 'http://y.test|unset|kept');
+    assert.equal((await t.run('bash', { command: 'printf %s "$API_URL"', shell: 'other' })).content, 'http://y.test');
     // Names that aren't valid are never exported.
     vars = { 'BAD NAME': 'x', GOOD: '1' };
-    assert.equal((await t.run('Bash', { command: 'printf %s "$GOOD"' })).content, '1');
+    assert.equal((await t.run('bash', { command: 'printf %s "$GOOD"' })).content, '1');
 });
 
 await test('chats: titles from the first message, the chat to open, and a store round trip', async () => {
@@ -1681,23 +1681,23 @@ await test('a sub-agent\'s shell is its own: its cd does not move the caller', a
     const t = createTools(new LocalBridge(work), { cwd: rootSh });
     const sub = t.without(DELEGATE_TOOL).forShell('sub-agent-1');
     assert.equal(sub.shell, 'sub-agent-1');
-    await sub.run('Bash', { command: 'cd src' });
-    assert.ok((await sub.run('Read', { path: 'main.ts' })).content.includes('needle'));
+    await sub.run('bash', { command: 'cd src' });
+    assert.ok((await sub.run('read', { path: 'main.ts' })).content.includes('needle'));
     assert.equal(t.cwd, rootSh);
-    assert.match((await t.run('Read', { path: 'main.ts' })).content, /does not exist/);
-    assert.equal((await sub.run('Delegate', { description: 'x', prompt: 'y' })).isError, true);
+    assert.match((await t.run('read', { path: 'main.ts' })).content, /does not exist/);
+    assert.equal((await sub.run('delegate', { description: 'x', prompt: 'y' })).isError, true);
 });
 
 await test('Bash takes its default timeout from the setting, in its description too', async () => {
     let ms = 5 * 60000;
     const bridge = heldBridge();
     const t = createTools(bridge, { bashTimeoutMs: () => ms });
-    assert.match(t.defs.find((d) => d.name === 'Bash').input_schema.properties.timeout.description, /Default: 300000 \(5 minutes\)/);
-    t.run('Bash', { command: 'a' });
+    assert.match(t.defs.find((d) => d.name === 'bash').input_schema.properties.timeout.description, /Default: 300000 \(5 minutes\)/);
+    t.run('bash', { command: 'a' });
     await tick();
     ms = 10 ** 9;   // above the maximum: clamped
-    t.run('Bash', { command: 'b' });
-    t.run('Bash', { command: 'c', timeout: 2000 });
+    t.run('bash', { command: 'b' });
+    t.run('bash', { command: 'c', timeout: 2000 });
     await tick();
     assert.deepEqual(bridge.jobs.map((j) => j.timeoutMs), [300000, 7200000, 2000]);
     for (const j of bridge.jobs) j.finish();
@@ -1725,29 +1725,29 @@ function pageVolumes() {
 await test('Read, Edit and Write of the page\'s volumes skip the guest, and need no booted VM', async () => {
     const files = pageVolumes();
     const t = createTools(new Promise(() => {}), { files, readyTimeoutMs: 50 });   // the VM never comes up
-    assert.match((await t.run('Write', { path: 'notes/a.txt', content: 'one two\n' })).content, /Wrote 8 bytes to \/workspace\/notes\/a.txt/);
+    assert.match((await t.run('write', { path: 'notes/a.txt', content: 'one two\n' })).content, /Wrote 8 bytes to \/workspace\/notes\/a.txt/);
     assert.equal(new TextDecoder().decode(files.stores.workspace.getFile('/notes/a.txt')), 'one two\n');
-    assert.equal((await t.run('Edit', { path: '/workspace/notes/a.txt', old_string: 'two', new_string: '2' })).isError, false);
-    assert.match((await t.run('Read', { path: 'notes/a.txt' })).content, /1\tone 2/);
-    assert.match((await t.run('Read', { path: 'notes' })).content, /directory, not a file/);
-    assert.match((await t.run('Read', { path: 'nope.txt' })).content, /does not exist/);
-    assert.match((await t.run('Write', { path: 'notes', content: 'x' })).content, /directory/);
-    await t.run('Write', { path: '/agent/skills/demo/SKILL.md', content: '---\nname: demo\n---\n' });
+    assert.equal((await t.run('edit', { path: '/workspace/notes/a.txt', old_string: 'two', new_string: '2' })).isError, false);
+    assert.match((await t.run('read', { path: 'notes/a.txt' })).content, /1\tone 2/);
+    assert.match((await t.run('read', { path: 'notes' })).content, /directory, not a file/);
+    assert.match((await t.run('read', { path: 'nope.txt' })).content, /does not exist/);
+    assert.match((await t.run('write', { path: 'notes', content: 'x' })).content, /directory/);
+    await t.run('write', { path: '/agent/skills/demo/SKILL.md', content: '---\nname: demo\n---\n' });
     assert.ok(files.stores.skills.getFile('/demo/SKILL.md'));
     // Anything else still needs the guest, and here waits for it in vain.
-    assert.match((await t.run('Read', { path: '/etc/passwd' })).content, /still booting/);
-    assert.match((await t.run('Read', { path: '/workspace/../etc/passwd' })).content, /still booting/);
-    assert.match((await t.run('Bash', { command: 'ls' })).content, /still booting/);
+    assert.match((await t.run('read', { path: '/etc/passwd' })).content, /still booting/);
+    assert.match((await t.run('read', { path: '/workspace/../etc/passwd' })).content, /still booting/);
+    assert.match((await t.run('bash', { command: 'ls' })).content, /still booting/);
 });
 
 await test('page-served writes keep per-file order', async () => {
     const files = pageVolumes();
     const t = createTools(new Promise(() => {}), { files });
-    await t.run('Write', { path: 'q.txt', content: 'one two' });
+    await t.run('write', { path: 'q.txt', content: 'one two' });
     const [, , read] = await Promise.all([
-        t.run('Edit', { path: 'q.txt', old_string: 'one', new_string: '1' }),
-        t.run('Edit', { path: 'q.txt', old_string: 'two', new_string: '2' }),
-        t.run('Read', { path: 'q.txt' }),
+        t.run('edit', { path: 'q.txt', old_string: 'one', new_string: '1' }),
+        t.run('edit', { path: 'q.txt', old_string: 'two', new_string: '2' }),
+        t.run('read', { path: 'q.txt' }),
     ]);
     assert.match(read.content, /1 2/);
 });
@@ -1802,7 +1802,7 @@ await test('Claude puts a message sent after tool results into the same user tur
 await test('a message queued during a turn reaches the model at its next step', async () => {
     const bridge = heldBridge();
     const provider = scripted([
-        { stop: 'tool_use', toolCalls: [{ id: '1', name: 'Bash', input: { command: 'slow' } }] },
+        { stop: 'tool_use', toolCalls: [{ id: '1', name: 'bash', input: { command: 'slow' } }] },
         { stop: 'end', text: 'ok' },
         { stop: 'end', text: 'and the second' },
     ]);
@@ -1838,14 +1838,14 @@ await test('a message queued during a turn reaches the model at its next step', 
 await test('the log records every exchange as plain JSON, with tool times', async () => {
     const entries = [];
     const provider = scripted([
-        { stop: 'tool_use', text: 'Reading.', toolCalls: [{ id: '1', name: 'Read', input: { path: 'a.txt' } }] },
+        { stop: 'tool_use', text: 'Reading.', toolCalls: [{ id: '1', name: 'read', input: { path: 'a.txt' } }] },
         { stop: 'end', text: 'done' },
     ]);
     let stats = null;
     await new Agent({ provider, tools, log: (e) => entries.push(e), on: { toolEnd: (c, r, s) => { stats = s; } } }).send('go');
     assert.deepEqual(entries.map((e) => [e.agent, e.type]), [['main', 'user'], ['main', 'response'], ['main', 'tool'], ['main', 'response']]);
     assert.equal(entries[1].text, 'Reading.');
-    assert.deepEqual(entries[1].toolCalls, [{ id: '1', name: 'Read', input: { path: 'a.txt' } }]);
+    assert.deepEqual(entries[1].toolCalls, [{ id: '1', name: 'read', input: { path: 'a.txt' } }]);
     assert.ok(Number.isInteger(entries[2].ms) && entries[2].ms >= 0);
     assert.match(entries[2].content, /alpha/);
     assert.ok(Number.isInteger(stats.ms));
@@ -1854,7 +1854,7 @@ await test('the log records every exchange as plain JSON, with tool times', asyn
 
 await test('the step limit is read at each step, so a setting change applies mid-turn', async () => {
     let max = 5;
-    const step = { stop: 'tool_use', toolCalls: [{ id: '1', name: 'Bash', input: { command: ':' } }] };
+    const step = { stop: 'tool_use', toolCalls: [{ id: '1', name: 'bash', input: { command: ':' } }] };
     const provider = scripted([step, step, step, step]);
     const r = await new Agent({ provider, tools, maxSteps: () => max, on: { toolEnd() { max = 2; } } }).send('go');
     assert.equal(r.stop, 'max_steps');
@@ -1868,11 +1868,11 @@ await test('Delegate runs at most maxConcurrent sub-agents at once; the rest wai
     const t = createTools(bridge, { delegate: (i, c) => delegate(i, c) });
     const log = [];
     delegate = createDelegate({ tools: t.without(DELEGATE_TOOL), maxConcurrent: () => limit, log: (e) => log.push(e) });
-    const subStep = (cmd) => [{ stop: 'tool_use', toolCalls: [{ id: cmd, name: 'Bash', input: { command: cmd } }] }, { stop: 'end', text: `did ${cmd}` }];
+    const subStep = (cmd) => [{ stop: 'tool_use', toolCalls: [{ id: cmd, name: 'bash', input: { command: cmd } }] }, { stop: 'end', text: `did ${cmd}` }];
     const provider = forkable([], [subStep('one'), subStep('two')]);
     const out = [];
-    const first = t.run('Delegate', { description: 'a', prompt: 'p' }, { provider, agent: 'main', callId: 'd1' });
-    const second = t.run('Delegate', { description: 'b', prompt: 'p' }, { provider, onOutput: (s) => out.push(s) });
+    const first = t.run('delegate', { description: 'a', prompt: 'p' }, { provider, agent: 'main', callId: 'd1' });
+    const second = t.run('delegate', { description: 'b', prompt: 'p' }, { provider, onOutput: (s) => out.push(s) });
     await tick();
     assert.equal(bridge.jobs.length, 1);   // the second waits for a slot
     assert.match(out.join(''), /waiting/);
@@ -1887,7 +1887,7 @@ await test('Delegate runs at most maxConcurrent sub-agents at once; the rest wai
         [['sub-agent 1', 'sub-agent-1', 'main', 'd1'], ['sub-agent 2', 'sub-agent-2', null, null]]);
     limit = 0;   // no limit
     const p2 = forkable([], [subStep('x'), subStep('y')]);
-    const both = Promise.all([t.run('Delegate', { description: 'x', prompt: 'p' }, { provider: p2 }), t.run('Delegate', { description: 'y', prompt: 'p' }, { provider: p2 })]);
+    const both = Promise.all([t.run('delegate', { description: 'x', prompt: 'p' }, { provider: p2 }), t.run('delegate', { description: 'y', prompt: 'p' }, { provider: p2 })]);
     await tick();
     assert.equal(bridge.jobs.length, 4);
     bridge.jobs[2].finish();
@@ -1900,12 +1900,12 @@ await test('a sub-agent waiting for a slot can be stopped', async () => {
     const bridge = heldBridge();
     const t = createTools(bridge, { delegate: (i, c) => delegate(i, c) });
     delegate = createDelegate({ tools: t.without(DELEGATE_TOOL), maxConcurrent: 1 });
-    const busy = [{ stop: 'tool_use', toolCalls: [{ id: 'b', name: 'Bash', input: { command: 'b' } }] }, { stop: 'end', text: 'r' }];
+    const busy = [{ stop: 'tool_use', toolCalls: [{ id: 'b', name: 'bash', input: { command: 'b' } }] }, { stop: 'end', text: 'r' }];
     const provider = forkable([], [busy]);
-    const running = t.run('Delegate', { description: 'a', prompt: 'p' }, { provider });
+    const running = t.run('delegate', { description: 'a', prompt: 'p' }, { provider });
     await tick();
     const stop = new AbortController();
-    const waiting = t.run('Delegate', { description: 'b', prompt: 'p' }, { provider, signal: stop.signal });
+    const waiting = t.run('delegate', { description: 'b', prompt: 'p' }, { provider, signal: stop.signal });
     await tick();
     stop.abort();
     const r = await waiting;
@@ -1917,21 +1917,38 @@ await test('a sub-agent waiting for a slot can be stopped', async () => {
 
 /* ---- tool names, ask_user, output limits, stopping one call ------------------- */
 
-await test('tool names match without case or separators', async () => {
-    assert.equal(resolveToolName('bash'), 'Bash');
-    assert.equal(resolveToolName('BASH'), 'Bash');
+await test('every tool name is snake_case', () => {
+    for (const n of ALL_TOOL_NAMES) assert.match(n, /^[a-z]+(_[a-z]+)*$/, n);
+    assert.equal(snakeCase('TodoWrite'), 'todo_write');
+    assert.equal(snakeCase('askUser'), 'ask_user');
+    assert.equal(snakeCase('Ask User'), 'ask_user');
+    assert.equal(snakeCase('HTTPServer'), 'http_server');
+    assert.equal(snakeCase('mcp__calc__add'), 'mcp__calc__add');
+});
+
+await test('a tool name that matches none is tried in snake_case, then without case or separators', async () => {
+    assert.equal(resolveToolName('bash'), 'bash');
+    assert.equal(resolveToolName('Bash'), 'bash');
+    assert.equal(resolveToolName('BASH'), 'bash');
+    assert.equal(resolveToolName('TodoWrite'), TODO_WRITE);
+    assert.equal(resolveToolName('todoRead'), TODO_READ);
+    assert.equal(resolveToolName('todowrite'), TODO_WRITE);
     assert.equal(resolveToolName('AskUser'), ASK_TOOL);
     assert.equal(resolveToolName('ask-user'), ASK_TOOL);
+    assert.equal(resolveToolName('Delegate'), DELEGATE_TOOL);
     assert.equal(resolveToolName('Nope'), 'Nope');
-    assert.equal((await run('read', { path: 'a.txt' })).isError, false);
+    // An exact name wins over its snake_case form: an MCP tool's as its server gave it.
+    assert.equal(resolveToolName('mcp__x__getThing', ['mcp__x__get_thing', 'mcp__x__getThing']), 'mcp__x__getThing');
+    assert.equal(resolveToolName('mcp__x__getThing', ['mcp__x__get_thing']), 'mcp__x__get_thing');
+    assert.equal((await run('Read', { path: 'a.txt' })).isError, false);
     // The loop shows (and logs) the tool that ran.
     const provider = scripted([
-        { stop: 'tool_use', toolCalls: [{ id: '1', name: 'read', input: { path: 'a.txt' } }] },
+        { stop: 'tool_use', toolCalls: [{ id: '1', name: 'Read', input: { path: 'a.txt' } }] },
         { stop: 'end' },
     ]);
     const names = [];
     await new Agent({ provider, tools, on: { toolStart: (c) => names.push(c.name) } }).send('go');
-    assert.deepEqual(names, ['Read']);
+    assert.deepEqual(names, ['read']);
     assert.match(provider.history[1][1][0].content, /1\talpha/);
 });
 
@@ -1970,7 +1987,7 @@ await test('sub-agents get no ask_user, and only their final message', async () 
     const t = createTools(new LocalBridge(work), { cwd: rootSh, delegate: (i, c) => delegate(i, c), ask: async () => ({ declined: true }) });
     delegate = createDelegate({ tools: t.without(DELEGATE_TOOL, ASK_TOOL) });
     const provider = forkable([
-        { stop: 'tool_use', toolCalls: [{ id: 'd', name: 'Delegate', input: { description: 'x', prompt: 'p' } }] },
+        { stop: 'tool_use', toolCalls: [{ id: 'd', name: 'delegate', input: { description: 'x', prompt: 'p' } }] },
         { stop: 'end' },
     ], [[
         { stop: 'tool_use', text: 'Working on it.', toolCalls: [{ id: 'a', name: 'ask_user', input: { question: 'q?', options: ['a', 'b'] } }] },
@@ -1989,11 +2006,11 @@ await test('a sub-agent cut off at the output limit is asked for its report; an 
     delegate = createDelegate({ tools: t.without(DELEGATE_TOOL) });
     const call = { description: 'x', prompt: 'p' };
     const p = forkable([], [[{ stop: 'max_tokens', detail: 'The response hit the output limit.' }, { stop: 'end', text: 'Short report.' }]]);
-    assert.deepEqual(await t.run('Delegate', call, { provider: p }), { content: 'Short report.', isError: false });
+    assert.deepEqual(await t.run('delegate', call, { provider: p }), { content: 'Short report.', isError: false });
     assert.match(p.forks[0].history.at(-1)[1], /cut off: it hit the output limit/);
     // Asking twice more and still nothing: then it fails, saying why.
     const empty = { stop: 'max_tokens', detail: 'cut' };
-    const r = await t.run('Delegate', call, { provider: forkable([], [[empty, empty, empty]]) });
+    const r = await t.run('delegate', call, { provider: forkable([], [[empty, empty, empty]]) });
     assert.deepEqual(r, { content: 'The sub-agent stopped without a report: cut', isError: true });
 
     let thrown = 0;
@@ -2009,7 +2026,7 @@ await test('a sub-agent cut off at the output limit is asked for its report; an 
         f.retried = 0;
         return f;
     };
-    const r2 = await t.run('Delegate', call, { provider: flaky, onOutput: () => {} });
+    const r2 = await t.run('delegate', call, { provider: flaky, onOutput: () => {} });
     assert.deepEqual(r2, { content: 'Recovered.', isError: false });
 });
 
@@ -2035,7 +2052,7 @@ await test('the delegate view sees each sub-agent start and end', async () => {
         },
     });
     const provider = forkable([
-        { stop: 'tool_use', toolCalls: [{ id: 'd9', name: 'Delegate', input: { description: 'look', prompt: 'p' } }] },
+        { stop: 'tool_use', toolCalls: [{ id: 'd9', name: 'delegate', input: { description: 'look', prompt: 'p' } }] },
         { stop: 'end' },
     ], [[{ stop: 'end', text: 'Seen.' }]]);
     await new Agent({ provider, tools: t, meta: { chatId: 'main' } }).send('go');
@@ -2048,7 +2065,7 @@ await test('a tool result is cut to the limit, and to a quarter of the window', 
     const cut = limitToolOutput('a'.repeat(300) + 'b'.repeat(100), 100);
     assert.ok(cut.startsWith('a'.repeat(75)) && cut.endsWith('b'.repeat(25)));
     assert.match(cut, /300 characters omitted: this result was 400 characters, over the 100-character limit/);
-    const big = { stop: 'tool_use', toolCalls: [{ id: '1', name: 'Bash', input: { command: 'seq 1 3000' } }] };
+    const big = { stop: 'tool_use', toolCalls: [{ id: '1', name: 'bash', input: { command: 'seq 1 3000' } }] };
     const p1 = scripted([big, { stop: 'end' }]);
     await new Agent({ provider: p1, tools, toolOutputMax: () => 500 }).send('go');
     assert.ok(p1.history[1][1][0].content.length < 800);
@@ -2062,8 +2079,8 @@ await test('a tool result is cut to the limit, and to a quarter of the window', 
 await test('one tool call can be stopped while the rest of the step goes on', async () => {
     const provider = scripted([
         { stop: 'tool_use', toolCalls: [
-            { id: 'slow', name: 'Bash', input: { command: 'sleep 9' } },
-            { id: 'ok', name: 'Bash', input: { command: 'fine' } },
+            { id: 'slow', name: 'bash', input: { command: 'sleep 9' } },
+            { id: 'ok', name: 'bash', input: { command: 'fine' } },
         ] },
         { stop: 'end', text: 'went on' },
     ]);
@@ -2094,28 +2111,28 @@ await test('one tool call can be stopped while the rest of the step goes on', as
 await test('a turn cut off by a reload: calls left open are found, closed or resumed', async () => {
     const c = new ClaudeProvider({ apiKey: 'k', model: 'claude-x', system: 's', tools: [] });
     c.messages = [{ role: 'user', content: 'go' }, { role: 'assistant', content: [
-        { type: 'text', text: 'ok' }, { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'x' } },
-        { type: 'tool_use', id: 't2', name: 'Delegate', input: { description: 'd', prompt: 'p' } }] }];
+        { type: 'text', text: 'ok' }, { type: 'tool_use', id: 't1', name: 'bash', input: { command: 'x' } },
+        { type: 'tool_use', id: 't2', name: 'delegate', input: { description: 'd', prompt: 'p' } }] }];
     assert.deepEqual(c.pendingCalls().map((x) => x.id), ['t1', 't2']);
     const o = new OpenAICompatProvider({ apiKey: '', baseURL: 'http://x', model: 'm', system: 'S', tools: [] });
     o.messages.push({ role: 'user', content: 'go' }, { role: 'assistant', content: null, tool_calls: [
-        { id: 'a', type: 'function', function: { name: 'Bash', arguments: '{"command":"x"}' } },
-        { id: 'b', type: 'function', function: { name: 'Read', arguments: '{"path":"y"}' } }] },
+        { id: 'a', type: 'function', function: { name: 'bash', arguments: '{"command":"x"}' } },
+        { id: 'b', type: 'function', function: { name: 'read', arguments: '{"path":"y"}' } }] },
     { role: 'tool', tool_call_id: 'a', content: 'done' });
-    assert.deepEqual(o.pendingCalls(), [{ id: 'b', name: 'Read', input: { path: 'y' } }]);
+    assert.deepEqual(o.pendingCalls(), [{ id: 'b', name: 'read', input: { path: 'y' } }]);
     o.addToolResults([{ id: 'b', content: 'r', isError: false }]);
     assert.deepEqual(o.pendingCalls(), []);
 
     // closePending answers them all "interrupted", running nothing.
     const plain = scripted([]);
-    plain.pendingCalls = () => [{ id: 'x', name: 'Bash', input: {} }];
+    plain.pendingCalls = () => [{ id: 'x', name: 'bash', input: {} }];
     assert.equal(new Agent({ provider: plain, tools }).closePending(), 1);
     assert.deepEqual(plain.history[0][1], [{ id: 'x', content: INTERRUPTED, isError: true }]);
 
     // resumePending: the runner answers what it can (text or a result), null is
     // "interrupted"; the note follows; the model goes on.
     const p = scripted([{ stop: 'end', text: 'carried on' }]);
-    let open = [{ id: 'b1', name: 'bash', input: { command: 'x' } }, { id: 'd1', name: 'Delegate', input: { description: 'd', prompt: 'p' } }];
+    let open = [{ id: 'b1', name: 'bash', input: { command: 'x' } }, { id: 'd1', name: 'delegate', input: { description: 'd', prompt: 'p' } }];
     p.pendingCalls = () => open;
     const origResults = p.addToolResults.bind(p);
     p.addToolResults = (r) => { open = []; origResults(r); };
@@ -2125,7 +2142,7 @@ await test('a turn cut off by a reload: calls left open are found, closed or res
         return call.name === DELEGATE_TOOL ? Promise.resolve('the report') : null;
     }, 'NOTE');
     assert.equal(r.stop, 'end');
-    assert.deepEqual(ran, ['Bash', 'Delegate']);
+    assert.deepEqual(ran, ['bash', 'delegate']);
     assert.deepEqual(p.history[0][1], [
         { id: 'b1', content: INTERRUPTED, isError: true },
         { id: 'd1', content: 'the report', isError: false },
@@ -2178,7 +2195,7 @@ await test('a turn waits out a lost connection, and the count starts over once i
     provider.step = async ({ onText }) => {
         const p = plan[n++];
         if (p === 'x') throw new TypeError('Failed to fetch');
-        if (p === 'tool') return { stop: 'tool_use', toolCalls: [{ id: 't', name: 'Read', input: { path: 'a.txt' } }] };
+        if (p === 'tool') return { stop: 'tool_use', toolCalls: [{ id: 't', name: 'read', input: { path: 'a.txt' } }] };
         onText('back');
         return { stop: 'end' };
     };
@@ -2223,7 +2240,7 @@ await test('a sub-agent waits out a lost connection instead of failing', async (
     };
     const provider = { fork: () => sub };
     const progress = [];
-    const r = await t.run('Delegate', { description: 'd', prompt: 'p' }, { provider, onOutput: (s) => progress.push(s) });
+    const r = await t.run('delegate', { description: 'd', prompt: 'p' }, { provider, onOutput: (s) => progress.push(s) });
     assert.deepEqual(r, { content: 'The report.', isError: false });
     assert.equal(n, 4);
     assert.ok(progress.join('').includes("↻ Can't reach the model (Failed to fetch); trying again in 0 s."));
@@ -2254,8 +2271,8 @@ await test('the keep-running tone is quiet, but loud enough for Chrome to count,
 
 await test('the Context panel splits the window into parts that add up', () => {
     const defs = [
-        { name: 'Bash', description: 'x'.repeat(400), input_schema: {} },
-        { name: 'Read', description: 'y'.repeat(40), input_schema: {} },
+        { name: 'bash', description: 'x'.repeat(400), input_schema: {} },
+        { name: 'read', description: 'y'.repeat(40), input_schema: {} },
         { name: 'skill', description: 'z'.repeat(200), input_schema: {} },
     ];
     const system = 's'.repeat(800);   // ~200 tokens
@@ -2267,7 +2284,7 @@ await test('the Context panel splits the window into parts that add up', () => {
     assert.equal(by.buffer, 20000);
     assert.equal(by.free, 70000);
     assert.equal(b.segments.reduce((n, p) => n + p.tokens, 0), 100000);
-    assert.deepEqual(b.tools.map((t) => t.name), ['Bash', 'Read']);   // the skill tool is its own row
+    assert.deepEqual(b.tools.map((t) => t.name), ['bash', 'read']);   // the skill tool is its own row
     assert.equal(b.measured, true);
     // Off: no buffer, the rest is free. Past the trigger: no buffer left either.
     assert.equal(contextBreakdown({ used: 10000, limit: 100000, trigger: 80000, auto: false, system, defs }).segments.find((p) => p.key === 'buffer').tokens, 0);
@@ -2338,11 +2355,11 @@ await test('running figures add up model, tool, sub-agent and break events', () 
     res({ stop: 'end', ms: 2000, firstMs: 1000, usage: { input: 5, cacheRead: 100, cacheWrite: 0, output: 100,
         limits: [{ name: 'requests', limit: 5, remaining: 4, resetAt: null }] } });
     recordExchange(f, { type: 'response', agent: 'sub-agent 1', stop: 'end', ms: 1000, usage: { input: 1, cacheRead: 0, output: 1 } });
-    recordExchange(f, { type: 'tool', name: 'Bash', input: { command: 'cd /w && make' }, ms: 400, chars: 9000, capped: true, via: 'vm',
+    recordExchange(f, { type: 'tool', name: 'bash', input: { command: 'cd /w && make' }, ms: 400, chars: 9000, capped: true, via: 'vm',
         health: { load1: 1 } });
-    recordExchange(f, { type: 'tool', name: 'Bash', input: { command: 'make test' }, ms: 200, isError: true, stopped: true, via: 'vm' });
-    recordExchange(f, { type: 'tool', name: 'Read', ms: 10, chars: 100, via: 'page' });
-    recordExchange(f, { type: 'tool', name: 'Delegate', ms: 9999, via: 'model' });
+    recordExchange(f, { type: 'tool', name: 'bash', input: { command: 'make test' }, ms: 200, isError: true, stopped: true, via: 'vm' });
+    recordExchange(f, { type: 'tool', name: 'read', ms: 10, chars: 100, via: 'page' });
+    recordExchange(f, { type: 'tool', name: 'delegate', ms: 9999, via: 'model' });
     recordExchange(f, { type: 'compaction', agent: 'main', after: 50 });
     recordExchange(f, { type: 'error', network: true, attempt: 1, retryInMs: 5000 });
     recordExchange(f, { type: 'error', network: true, attempt: 2, retryInMs: 5000 });
@@ -2366,7 +2383,7 @@ await test('running figures add up model, tool, sub-agent and break events', () 
     assert.equal(sm.tokensPerSecond, 300 / 3);   // 300 tokens over 2 s + 1 s of streaming
     assert.equal(sm.firstMsAvg, 1000);
     assert.equal(sm.parallelAvg, 3);
-    const bash = sm.tools.find((t) => t.name === 'Bash');
+    const bash = sm.tools.find((t) => t.name === 'bash');
     assert.deepEqual([bash.calls, bash.failed, bash.stopped, bash.capped, bash.medianMs, bash.maxMs, bash.avgChars],
         [2, 1, 1, 1, 300, 400, 4500 + Math.round(String('').length / 2)]);
     // An older record gets the missing parts, and keeps what it has.
@@ -2384,7 +2401,7 @@ await test('the agent logs the first-token time and each call\'s size, cut, stop
     provider.step = async ({ onText, onUsage }) => {
         n++;
         await new Promise((r) => setTimeout(r, 20));
-        if (n === 1) return { stop: 'tool_use', toolCalls: [{ id: 'r', name: 'Read', input: { path: 'a.txt' } }] };
+        if (n === 1) return { stop: 'tool_use', toolCalls: [{ id: 'r', name: 'read', input: { path: 'a.txt' } }] };
         onText('ok');
         onUsage({ input: 1, output: 2 });
         return { stop: 'end' };
@@ -2462,23 +2479,23 @@ await test('the Bash tool goes to bash.js when the setting is on, and tells the 
     const js = createJsBash({ vm: () => vm, mounts: MOUNTS });
     const bridge = new LocalBridge(work);
     const t = createTools(bridge, { cwd: '/workspace', jsBash: () => (on ? js : null) });
-    const def = () => t.defs.find((d) => d.name === 'Bash');
+    const def = () => t.defs.find((d) => d.name === 'bash');
     assert.match(def().description, /in the VM/);
     assert.ok(def().input_schema.properties.run_in_background);
     on = true;
     assert.match(def().description, /bash\.js/);
     assert.equal(def().input_schema.properties.run_in_background, undefined);
     const out = {};
-    let r = await t.run('Bash', { command: 'echo hi > a.txt; cat a.txt' }, { out });
+    let r = await t.run('bash', { command: 'echo hi > a.txt; cat a.txt' }, { out });
     assert.deepEqual(r, { content: 'hi\n', isError: false });
     assert.equal(out.via, 'page');
-    r = await t.run('Bash', { command: 'false' });
+    r = await t.run('bash', { command: 'false' });
     assert.deepEqual(r, { content: '[Exit code 1.]', isError: true });
-    r = await t.run('Bash', { command: 'sleep 1', run_in_background: true });
+    r = await t.run('bash', { command: 'sleep 1', run_in_background: true });
     assert.equal(r.isError, true);
     assert.match(r.content, /unknown parameter "run_in_background"/);   // not offered in bash.js's schema
     // A cd moves the tools' shell too, so Read resolves against it.
-    r = await t.run('Bash', { command: 'mkdir -p d && cd d' });
+    r = await t.run('bash', { command: 'mkdir -p d && cd d' });
     assert.equal(t.cwd, '/workspace/d');
     assert.match(r.content, /^\[The working directory is now \/workspace\/d: /);
 });
@@ -2523,14 +2540,14 @@ await test('lastLines keeps the end of long output', () => {
 
 await test('Bash gives the model only the last bashKeepLines lines, and says so', async () => {
     const t = createTools(new LocalBridge(work), { cwd: rootSh, bashKeepLines: () => 3 });
-    let r = await t.run('Bash', { command: 'for i in 1 2 3 4 5 6 7 8 9 10; do echo line$i; done' });
+    let r = await t.run('bash', { command: 'for i in 1 2 3 4 5 6 7 8 9 10; do echo line$i; done' });
     assert.equal(r.isError, false);
     assert.match(r.content, /^line8\nline9\nline10\n\[Showing the last 3 of 10 lines of output/);
-    r = await t.run('Bash', { command: 'echo short' });
+    r = await t.run('bash', { command: 'echo short' });
     assert.equal(r.content, 'short\n');
     // A bridge that cut the output itself (the guest's out.tail) says how many lines there were.
     const cut = { exec: async () => ({ rc: 0, out: new TextEncoder().encode('y\nz\n'), outLines: 500, cwd: null, files: {} }) };
-    r = await createTools(cut, { bashKeepLines: () => 2 }).run('Bash', { command: 'seq 500' });
+    r = await createTools(cut, { bashKeepLines: () => 2 }).run('bash', { command: 'seq 500' });
     assert.match(r.content, /^y\nz\n\[Showing the last 2 of 500 lines/);
 });
 
@@ -2562,14 +2579,14 @@ await test('a new sub-agent never takes a shell that already exists', async () =
 });
 
 await test('streamed tool names: repeats, pieces and a name re-sent whole', () => {
-    const known = new Set(['Bash', 'aa', 'Read']);
+    const known = new Set(['bash', 'aa', 'read']);
     const merge = (deltas, k = known) => { const c = {}; for (const d of deltas) mergeCall(c, d, k); return c.function.name; };
-    assert.equal(merge([{ function: { name: 'Bash' } }, { function: { name: 'Bash', arguments: '{}' } }]), 'Bash');
+    assert.equal(merge([{ function: { name: 'bash' } }, { function: { name: 'bash', arguments: '{}' } }]), 'bash');
     assert.equal(merge([{ function: { name: 'a' } }, { function: { name: 'a' } }]), 'aa');
-    assert.equal(merge([{ function: { name: 'Re' } }, { function: { name: 'ad' } }]), 'Read');
-    assert.equal(merge([{ function: { name: 'Ba' } }, { function: { name: 'Bash' } }]), 'Bash');
+    assert.equal(merge([{ function: { name: 're' } }, { function: { name: 'ad' } }]), 'read');
+    assert.equal(merge([{ function: { name: 'ba' } }, { function: { name: 'bash' } }]), 'bash');
     // Without a tool list, a repeat stays a repeat (as before).
-    assert.equal(merge([{ function: { name: 'Bash' } }, { function: { name: 'Bash' } }], null), 'Bash');
+    assert.equal(merge([{ function: { name: 'bash' } }, { function: { name: 'bash' } }], null), 'bash');
 });
 
 await test('a deletion on disk spares what changed there since the scan', async () => {

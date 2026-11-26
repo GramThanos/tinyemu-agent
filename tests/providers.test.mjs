@@ -146,12 +146,12 @@ await test('tool calls without index (Gemini): each named one starts a call; its
     const p = make();
     p.addUser('hi');
     globalThis.fetch = fakeStream([
-        delta({ tool_calls: [{ id: 'c1', type: 'function', function: { name: 'Bash', arguments: '{"command":"ls"}' }, extra_content: sig }] }),
-        delta({ tool_calls: [{ id: 'c2', type: 'function', function: { name: 'Read', arguments: '{"path":"/a"}' } }] }),
+        delta({ tool_calls: [{ id: 'c1', type: 'function', function: { name: 'bash', arguments: '{"command":"ls"}' }, extra_content: sig }] }),
+        delta({ tool_calls: [{ id: 'c2', type: 'function', function: { name: 'read', arguments: '{"path":"/a"}' } }] }),
         { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }, '[DONE]']);
     const out = await run(p);
     assert.equal(out.r.stop, 'tool_use');
-    assert.deepEqual(out.r.toolCalls.map((c) => [c.id, c.name, c.input]), [['c1', 'Bash', { command: 'ls' }], ['c2', 'Read', { path: '/a' }]]);
+    assert.deepEqual(out.r.toolCalls.map((c) => [c.id, c.name, c.input]), [['c1', 'bash', { command: 'ls' }], ['c2', 'read', { path: '/a' }]]);
     const m = p.messages.at(-1);
     assert.deepEqual(m.tool_calls[0].extra_content, sig);
     assert.equal(m.tool_calls[1].extra_content, undefined);
@@ -169,11 +169,11 @@ await test('streamed tool calls with index still assemble in pieces (OpenAI)', a
     const p = make();
     p.addUser('hi');
     globalThis.fetch = fakeStream([
-        delta({ tool_calls: [{ index: 0, id: 'c1', type: 'function', function: { name: 'Bash', arguments: '' } }] }),
+        delta({ tool_calls: [{ index: 0, id: 'c1', type: 'function', function: { name: 'bash', arguments: '' } }] }),
         delta({ tool_calls: [{ index: 0, function: { arguments: '{"comm' } }] }),
         delta({ tool_calls: [{ index: 0, function: { arguments: 'and":"pwd"}' } }] }), '[DONE]']);
     const out = await run(p);
-    assert.deepEqual(out.r.toolCalls, [{ id: 'c1', name: 'Bash', input: { command: 'pwd' } }]);
+    assert.deepEqual(out.r.toolCalls, [{ id: 'c1', name: 'bash', input: { command: 'pwd' } }]);
 });
 
 await test('the thinking level is sent as reasoning_effort, every level, none when unset', async () => {

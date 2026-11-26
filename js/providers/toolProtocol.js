@@ -20,7 +20,7 @@ You have these tools:
 ${specs}
 
 To call a tool, reply with exactly this and then stop, without guessing the result:
-${OPEN}{"name": "Bash", "arguments": {"command": "uname -a"}}${CLOSE}
+${OPEN}{"name": "bash", "arguments": {"command": "uname -a"}}${CLOSE}
 
 You can write several calls in one reply; they run at the same time. The results come back in the next message as <tool_response>. Reply normally, with no tool call, when the task is finished.`;
 }

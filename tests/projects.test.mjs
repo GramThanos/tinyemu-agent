@@ -199,18 +199,18 @@ await test('a bash.js environment runs every tool on the project\'s workspace', 
     const env = pool.env(p, ws, 'bashjs');
     assert.equal(env.status, 'ready');
     const t = env.toolsFor('c1');
-    let r = await t.run('Write', { path: 'src/app.js', content: 'const x = 1;\nhello();\n' });
+    let r = await t.run('write', { path: 'src/app.js', content: 'const x = 1;\nhello();\n' });
     assert.equal(r.isError, false, r.content);
-    r = await t.run('Bash', { command: 'cat src/app.js | wc -l' });
+    r = await t.run('bash', { command: 'cat src/app.js | wc -l' });
     assert.equal(r.content.trim(), '2');
-    r = await t.run('Glob', { pattern: '**/*.js' });
+    r = await t.run('glob', { pattern: '**/*.js' });
     assert.equal(r.content, '/workspace/src/app.js');
-    r = await t.run('Grep', { pattern: 'hel+o', include: '*.js' });
+    r = await t.run('grep', { pattern: 'hel+o', include: '*.js' });
     assert.equal(r.content, '/workspace/src/app.js:2:hello();');
     // The same environment from another chat shares the files, not the shell.
-    await t.run('Bash', { command: 'cd src' });
+    await t.run('bash', { command: 'cd src' });
     const t2 = env.toolsFor('c2');
-    r = await t2.run('Bash', { command: 'pwd; ls src' });
+    r = await t2.run('bash', { command: 'pwd; ls src' });
     assert.equal(r.content, '/workspace\napp.js\n');
     assert.equal(DEC.decode(disk.saved.get('ws1').getFile('/src/app.js')).split('\n')[1], 'hello();');
     clearInterval(ws._timer);
@@ -227,7 +227,7 @@ await test('the bash.js bridge refuses scripts that need the guest\'s files', as
     assert.equal(r.rc, 1);
     assert.match(DEC.decode(r.out), /needs the VM/);
     const t = createTools(b, { jsBash: () => js });
-    const w = await t.run('Read', { path: '/tmp/nothing' });
+    const w = await t.run('read', { path: '/tmp/nothing' });
     assert.equal(w.isError, true);
 });
 

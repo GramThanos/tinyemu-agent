@@ -11,7 +11,7 @@
 import { Agent, createDelegate } from '../../js/Agent.js';
 import { newChat, titleFrom } from '../../js/chats.js';
 import { recordSubAgent } from '../../js/figures.js';
-import { DELEGATE_TOOL, ToolError } from '../../js/tools.js';
+import { DELEGATE_TOOL, ToolError, resolveToolName } from '../../js/tools.js';
 import { emit } from './store.js';
 import { chatById, mainChatOf, S, stampText, anyRunning } from './state.js';
 import { contextOptions, keepAwake, settings } from './settings.js';
@@ -575,7 +575,7 @@ async function resumeChat(c) {
 
 /* A call the reload cut off: a sub-agent carries on; anything else is "interrupted". */
 function resumeCall(c, call, ctx) {
-    if (call.name !== DELEGATE_TOOL) return null;
+    if (resolveToolName(call.name) !== DELEGATE_TOOL) return null;
     const sub = subChatOf(c.id, call.id);
     const root = S.sessions.get(c.id)?.agent?.provider;
     if (!sub?.history || !root?.fork) return null;

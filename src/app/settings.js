@@ -9,7 +9,7 @@
 'use strict';
 
 import { EMPTY_RETRIES, MAX_STEPS, NETWORK_RETRIES, SUBAGENT_MAX_STEPS } from '../../js/Agent.js';
-import { BASH_DEFAULT_MS, BASH_MAX_MS } from '../../js/tools.js';
+import { BASH_DEFAULT_MS, BASH_MAX_MS, resolveToolName } from '../../js/tools.js';
 import { DEFAULT_CONTEXT_WINDOW } from '../../js/compaction.js';
 import { EFFORT_DEFAULT, EFFORTS } from '../../js/providerStore.js';
 import { createKeepAwake } from '../../js/keepAwake.js';
@@ -45,7 +45,8 @@ const inLimits = (key, n) => Number.isInteger(n) && n >= LIMITS[key][1] && n <= 
 export const settings = (() => {
     const saved = readJSON(SETTINGS);
     const s = { ...SETTINGS_DEFAULT, ...(saved && typeof saved === 'object' ? saved : {}) };
-    if (!Array.isArray(s.disabledTools)) s.disabledTools = [];
+    // Names from before snake_case (Bash, TodoWrite) are kept under the new ones.
+    s.disabledTools = Array.isArray(s.disabledTools) ? [...new Set(s.disabledTools.map((n) => resolveToolName(n)))] : [];
     if (!Array.isArray(s.disabledSkills)) s.disabledSkills = [];
     if (!s.effort || typeof s.effort !== 'object') s.effort = {};
     if (!COMPACT_LEVELS.includes(s.compactAt)) s.compactAt = SETTINGS_DEFAULT.compactAt;
@@ -108,23 +109,23 @@ export const contextOptions = {
 };
 
 export const TOOL_HINTS = {
-    Read: 'read files in the VM',
-    Edit: 'change part of a file',
-    Write: 'create or overwrite files',
-    Glob: 'find files by name',
-    Grep: 'search file contents',
-    Bash: 'run shell commands',
+    read: 'read files in the VM',
+    edit: 'change part of a file',
+    write: 'create or overwrite files',
+    glob: 'find files by name',
+    grep: 'search file contents',
+    bash: 'run shell commands',
     skill: 'load one of your skills (offered while any is on in the Skills tab)',
-    Delegate: 'hand a task to a sub-agent (each shows in a read-only tab)',
+    delegate: 'hand a task to a sub-agent (each shows in a read-only tab)',
     ask_user: 'ask you questions, with suggested answers (main agent only)',
 };
 /* A tool's own number settings, shown under its toggle: [text before, key, text after]. */
 export const TOOL_OPTIONS = {
-    Bash: [
+    bash: [
         ['default timeout', 'bashTimeoutMin', 'minutes (the model can ask for another, up to 120)'],
         ['keep the last', 'bashKeepLines', 'lines of a command’s output (0: all, up to the 2 MB a command may write)'],
     ],
-    Delegate: [
+    delegate: [
         ['at most', 'subMaxConcurrent', 'sub-agents at once (0: no limit; more wait their turn)'],
         ['at most', 'subMaxSteps', 'steps each'],
     ],

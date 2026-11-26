@@ -15,7 +15,7 @@
 
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { toolArgText } from '../../js/Agent.js';
-import { DELEGATE_TOOL } from '../../js/tools.js';
+import { BASH_TOOL, DELEGATE_TOOL, resolveToolName } from '../../js/tools.js';
 import { useTopics } from '../app/store.js';
 import { fmt, seconds } from '../app/state.js';
 import { envLabelOf } from '../app/machines.js';
@@ -85,7 +85,7 @@ const ToolCard = memo(function ToolCard({ it, s, sub }) {
                 {it.running && button('stop', it.stopping ? 'stopping…' : '■ stop', 'Stop this call only; the agent carries on and is told', stop, it.stopping)}
                 {sub && button('open', 'open ↗', 'Open this sub-agent\'s conversation (read-only)', () => switchChat(sub))}
                 <span className="name">{call.name}</span>
-                {call.name === 'Bash' && call.input?.shell && <span className="tshell">{` [${call.input.shell}]`}</span>}
+                {resolveToolName(call.name) === BASH_TOOL && call.input?.shell && <span className="tshell">{` [${call.input.shell}]`}</span>}
                 {` ${toolArgText(call)}`}
             </summary>
             <pre className="input">{JSON.stringify(call.input, null, 2)}</pre>
@@ -193,7 +193,7 @@ function ChatLog({ s, open }) {
                 if (it.kind === 'thinking') return <Thinking key={it.id} it={it} v={it.v} />;
                 if (it.kind === 'compaction') return <Compaction key={it.id} it={it} v={it.v} />;
                 if (it.kind === 'welcome') return <Welcome key={it.id} s={s} />;
-                const sub = it.call.name === DELEGATE_TOOL ? subChatOf(s.chat.id, it.call.id)?.id : null;
+                const sub = resolveToolName(it.call.name) === DELEGATE_TOOL ? subChatOf(s.chat.id, it.call.id)?.id : null;
                 return <ToolCard key={it.id} it={it} v={it.v} s={s} sub={sub} />;
             })}
             {s.waiting && <Waiting w={s.waiting} />}

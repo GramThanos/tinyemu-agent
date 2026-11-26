@@ -32,7 +32,9 @@ import {
     COMPACT_PROMPT, compactedMessage, DEFAULT_CONTEXT_WINDOW, estimateTokens, isContextOverflow, renderTranscript,
 } from './compaction.js';
 import { pauses } from './pause.js';
-import { ASK_TOOL, limitToolOutput } from './tools.js';
+import {
+    ASK_TOOL, BASH_TOOL, DELEGATE_TOOL, EDIT_TOOL, GLOB_TOOL, GREP_TOOL, READ_TOOL, TODO_READ, TODO_WRITE, WRITE_TOOL, limitToolOutput,
+} from './tools.js';
 
 /* The built-in system prompt. {{VAR_ARCH}} and {{VAR_OS_NAME}} are filled in by
  * renderPrompt() with the running machine's processor and system, in the
@@ -54,7 +56,7 @@ export function renderPrompt(text, vars = {}) {
 export function subagentPrompt(system = SYSTEM_PROMPT) {
     return `${system}
 
-You are a sub-agent: another agent gave you this task through its Delegate tool, and the user is not reading along. Do the task, then end with a report for that agent: what you did, what you found, the paths of anything you created or changed, and anything that failed or is left undone. Your final message is the only thing it receives, so put everything it needs there.`;
+You are a sub-agent: another agent gave you this task through its delegate tool, and the user is not reading along. Do the task, then end with a report for that agent: what you did, what you found, the paths of anything you created or changed, and anything that failed or is left undone. Your final message is the only thing it receives, so put everything it needs there.`;
 }
 
 export const SUBAGENT_PROMPT = subagentPrompt();
@@ -383,18 +385,19 @@ export function createDelegate({
 
 /* The argument that identifies a call best, for one-line progress. */
 export const TOOL_ARG = {
-    Read: 'path', Edit: 'path', Write: 'path', Glob: 'pattern', Grep: 'pattern', Bash: 'command', skill: 'name', Delegate: 'description',
+    [READ_TOOL]: 'path', [EDIT_TOOL]: 'path', [WRITE_TOOL]: 'path', [GLOB_TOOL]: 'pattern', [GREP_TOOL]: 'pattern',
+    [BASH_TOOL]: 'command', skill: 'name', [DELEGATE_TOOL]: 'description',
 };
 
-/** That argument's text; for ask_user, its first question; for TodoWrite, the list's state. */
+/** That argument's text; for ask_user, its first question; for todo_write, the list's state. */
 export function toolArgText(call) {
     const input = call?.input || {};
-    if (call?.name === 'TodoWrite' && Array.isArray(input.todos)) {
+    if (call?.name === TODO_WRITE && Array.isArray(input.todos)) {
         const done = input.todos.filter((x) => x?.status === 'completed').length;
         const now = input.todos.find((x) => x?.status === 'in_progress')?.content;
         return `${done} of ${input.todos.length} done${now ? ` · now: ${now}` : ''}`;
     }
-    if (call?.name === 'TodoRead') return '';
+    if (call?.name === TODO_READ) return '';
     if (call?.name === ASK_TOOL) {
         const q = Array.isArray(input.questions) ? input.questions[0]?.question : input.question;
         const more = Array.isArray(input.questions) && input.questions.length > 1 ? ` (+${input.questions.length - 1} more)` : '';
@@ -776,7 +779,7 @@ export class Agent {
 
     /* All calls in a step run at once. They start in order, and a provider gets
      * one result per call, in order, even after a stop. Names are matched
-     * loosely (bash → Bash), so the cards and the log show the tool that ran. */
+     * loosely (Bash → bash, TodoWrite → todo_write), so the cards and the log show the tool that ran. */
     async _runCalls(calls, signal, run = null) {
         const resolved = calls.map((c) => ({ ...c, name: this.tools.resolve ? this.tools.resolve(c.name) : c.name }));
         return Promise.all(resolved.map((call) => this._runCall(call, signal, run)));
